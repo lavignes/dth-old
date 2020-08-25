@@ -1,0 +1,18 @@
+[package]
+name = "dth"
+version = "0.1.0"
+authors = ["lavignes"]
+edition = "2018"
+
+[profile.release]
+debug = true
+
+[dependencies]
+log = "0.4.11"
+env_logger = "0.7.1"
+bytemuck = "1.3.1"
+rand = "0.7.3"
+futures = "0.3.5"
+
+wgpu = { version = "0.6.0", features = ["vulkan-portability"] }
+sdl2 = { version = "0.34.3", features = ["raw-window-handle", "mixer"] }
