@@ -31,6 +31,7 @@ use log::LevelFilter;
 use std::{
     io::Read,
     mem,
+    num::NonZeroU64,
     path::Path,
     time::{Duration, Instant},
 };
@@ -213,8 +214,7 @@ fn main() -> Result<(), BoxedError> {
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer {
                         dynamic: false,
-                        // min_binding_size: NonZeroU64::new(mem::size_of::<Projection>() as u64),
-                        min_binding_size: None,
+                        min_binding_size: NonZeroU64::new(mem::size_of::<Projection>() as u64),
                     },
                     count: None,
                 },
@@ -224,8 +224,7 @@ fn main() -> Result<(), BoxedError> {
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer {
                         dynamic: false,
-                        // min_binding_size: NonZeroU64::new(mem::size_of::<View>() as u64),
-                        min_binding_size: None,
+                        min_binding_size: NonZeroU64::new(mem::size_of::<View>() as u64),
                     },
                     count: None,
                 },
