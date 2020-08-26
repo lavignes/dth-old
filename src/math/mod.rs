@@ -8,7 +8,7 @@ pub use vector::*;
 
 use std::f32;
 
-const TAU: f32 = f32::consts::PI * 2.0;
+pub const TAU: f32 = f32::consts::PI * 2.0;
 
 const LOG2_TABLE_U64: [usize; 64] = [
     63, 0, 58, 1, 59, 47, 53, 2, 60, 39, 48, 27, 54, 33, 42, 3, 61, 51, 37, 40, 49, 18, 28, 20, 55,
@@ -24,12 +24,11 @@ const LOG2_TABLE_U32: [usize; 32] = [
 /// Wrap an angle in radians between \[0 - TAU\]
 #[inline]
 pub fn normalize_angle(angle: f32) -> f32 {
-    if angle < 0.0 {
-        angle + TAU
-    } else if angle > TAU {
-        TAU - angle
+    let angle_mod = angle % TAU;
+    if angle_mod < 0.0 {
+        angle_mod + TAU
     } else {
-        angle
+        angle_mod
     }
 }
 

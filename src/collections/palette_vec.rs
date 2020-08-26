@@ -1,10 +1,13 @@
-use crate::collections::PackedIntVecIterator;
-use crate::{collections::PackedIntVec, math::IntLog2};
+use crate::{
+    collections::{PackedIntVec, PackedIntVecIterator},
+    math::IntLog2,
+};
+use std::hash::Hash;
 
 #[derive(Debug)]
 pub struct PaletteVec<T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
     palette: Vec<T>,
     indices: PackedIntVec,
@@ -16,15 +19,21 @@ where
 /// and a list of indices that point to elements in the palette.
 impl<T> PaletteVec<T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
-    pub fn with_capacity(palette_capacity: usize, vec_capacity: usize) -> PaletteVec<T> {
+    #[inline]
+    pub fn filled(palette_capacity: usize, len: usize, value: T) -> PaletteVec<T> {
         PaletteVec {
-            palette: Vec::with_capacity(palette_capacity),
-            indices: PackedIntVec::with_capacity(
-                (palette_capacity as u64).log2() as u32,
-                vec_capacity,
-            ),
+            palette: vec![value],
+            indices: PackedIntVec::filled((palette_capacity as u64).log2() as u32, len, 0),
+        }
+    }
+
+    #[inline]
+    pub fn with_capacity(palette_capacity: usize, capacity: usize) -> PaletteVec<T> {
+        PaletteVec {
+            palette: Vec::with_capacity(capacity),
+            indices: PackedIntVec::with_capacity((palette_capacity as u64).log2() as u32, capacity),
         }
     }
 
@@ -82,7 +91,7 @@ where
 
 impl<'a, T> IntoIterator for &'a PaletteVec<T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
     type Item = &'a T;
     type IntoIter = PaletteVecIterator<'a, T>;
@@ -95,7 +104,7 @@ where
 
 impl<T> Default for PaletteVec<T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
     #[inline]
     fn default() -> PaletteVec<T> {
@@ -105,7 +114,7 @@ where
 
 pub struct PaletteVecIterator<'a, T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
     inner: &'a PaletteVec<T>,
     inner_iter: PackedIntVecIterator<'a>,
@@ -113,7 +122,7 @@ where
 
 impl<'a, T> Iterator for PaletteVecIterator<'a, T>
 where
-    T: Eq + Default,
+    T: Eq + Default + Hash + Clone,
 {
     type Item = &'a T;
 

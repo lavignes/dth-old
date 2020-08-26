@@ -73,11 +73,27 @@ impl AddAssign for Vector2 {
     }
 }
 
+impl Sub for Vector2 {
+    type Output = Vector2;
+    #[inline]
+    fn sub(self, rhs: Vector2) -> Vector2 {
+        Vector2([self.0[0] - rhs.0[0], self.0[1] - rhs.0[1]])
+    }
+}
+
 impl MulAssign for Vector2 {
     #[inline]
     fn mul_assign(&mut self, rhs: Vector2) {
         self.0[0] *= rhs.0[0];
         self.0[1] *= rhs.0[1];
+    }
+}
+
+impl Div for Vector2 {
+    type Output = Vector2;
+    #[inline]
+    fn div(self, rhs: Vector2) -> Vector2 {
+        Vector2([self.0[0] / rhs.0[0], self.0[1] / rhs.0[1]])
     }
 }
 
@@ -346,6 +362,14 @@ impl Neg for Vector3 {
     }
 }
 
+impl Add<f32> for Vector3 {
+    type Output = Vector3;
+    #[inline]
+    fn add(self, rhs: f32) -> Vector3 {
+        Vector3([self.0[0] + rhs, self.0[1] + rhs, self.0[2] + rhs])
+    }
+}
+
 impl Mul<f32> for Vector3 {
     type Output = Vector3;
     #[inline]
@@ -396,6 +420,13 @@ impl From<(f32, f32, f32)> for Vector3 {
     #[inline]
     fn from(value: (f32, f32, f32)) -> Vector3 {
         Vector3([value.0, value.1, value.2])
+    }
+}
+
+impl From<(usize, usize, usize)> for Vector3 {
+    #[inline]
+    fn from(value: (usize, usize, usize)) -> Vector3 {
+        Vector3([value.0 as f32, value.1 as f32, value.2 as f32])
     }
 }
 

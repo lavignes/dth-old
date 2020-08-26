@@ -51,6 +51,24 @@ impl Quaternion {
         Quaternion(Vector4([-self.0[0], -self.0[1], -self.0[2], self.0[3]]))
     }
 
+    #[inline]
+    pub fn right_axis(&self) -> Vector3 {
+        // Essentially cancel out the rotation to get the vector part
+        (*self * Vector3::right() * self.conjugated()).0.narrow()
+    }
+
+    #[inline]
+    pub fn up_axis(&self) -> Vector3 {
+        // Essentially cancel out the rotation to get the vector part
+        (*self * Vector3::up() * self.conjugated()).0.narrow()
+    }
+
+    #[inline]
+    pub fn forward_axis(&self) -> Vector3 {
+        // Essentially cancel out the rotation to get the vector part
+        (*self * Vector3::forward() * self.conjugated()).0.narrow()
+    }
+
     /// A *very* fast interpolation. Only really useful for
     /// interpolating as long as the quaternions are aligned with
     /// an axis.
@@ -103,6 +121,18 @@ impl Mul<Quaternion> for Quaternion {
             self.0[1] * rhs.0[3] + self.0[3] * rhs.0[1] + self.0[2] * rhs.0[0] - self.0[0] * rhs.0[2],
             self.0[2] * rhs.0[3] + self.0[3] * rhs.0[2] + self.0[0] * rhs.0[1] - self.0[1] * rhs.0[0],
             self.0[3] * rhs.0[3] - self.0[0] * rhs.0[0] - self.0[1] * rhs.0[1] - self.0[2] * rhs.0[2],
+        ]))
+    }
+}
+
+impl Mul<Vector3> for Quaternion {
+    type Output = Quaternion;
+    fn mul(self, rhs: Vector3) -> Quaternion {
+        Quaternion(Vector4([
+            self.0[3] * rhs.0[0] + self.0[1] * rhs.0[2] - self.0[2] * rhs.0[1],
+            self.0[3] * rhs.0[1] + self.0[2] * rhs.0[0] - self.0[0] * rhs.0[2],
+            self.0[3] * rhs.0[2] + self.0[0] * rhs.0[1] - self.0[1] * rhs.0[0],
+            -self.0[0] * rhs.0[0] - self.0[2] * rhs.0[1] - self.0[2] * rhs.0[2],
         ]))
     }
 }

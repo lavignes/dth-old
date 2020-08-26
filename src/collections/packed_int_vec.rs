@@ -40,6 +40,15 @@ impl PackedIntVec {
         PackedIntVec::with_capacity(int_size, 16)
     }
 
+    #[inline]
+    pub fn filled(int_size: u32, len: usize, value: u64) -> PackedIntVec {
+        let mut vec = PackedIntVec::with_capacity(int_size, len);
+        for _ in 0..len {
+            vec.push(value);
+        }
+        vec
+    }
+
     /// Create a new packed integer vec pre-allocated for `capacity` `int_size`-bit integers.
     /// The vec will always hold at least 4-bit integers.
     ///

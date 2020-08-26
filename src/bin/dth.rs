@@ -1,9 +1,3 @@
-use dth::{
-    self,
-    math::Vector3,
-    math::{Matrix4, Vector2},
-    util::BoxedError,
-};
 use futures::executor;
 use sdl2::{
     event::{Event, WindowEvent},
@@ -11,16 +5,35 @@ use sdl2::{
     Sdl,
 };
 use wgpu::{
-    util::BufferInitDescriptor, util::DeviceExt, BackendBit, BufferUsage, Color,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features, Instance, Limits,
-    LoadOp, Operations, PowerPreference, PresentMode, Queue, RenderPassColorAttachmentDescriptor,
-    RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RequestAdapterOptions,
-    Surface, SwapChain, SwapChainDescriptor, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsage, TextureView, TextureViewDescriptor,
+    util::BufferInitDescriptor, util::DeviceExt, BackendBit, BindGroupDescriptor, BindGroupEntry,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendDescriptor,
+    BlendFactor, BlendOperation, BufferUsage, Color, ColorStateDescriptor, ColorWrite,
+    CommandEncoderDescriptor, CompareFunction, CullMode, DepthStencilStateDescriptor, Device,
+    DeviceDescriptor, Extent3d, Features, FrontFace, IndexFormat, InputStepMode, Instance, Limits,
+    LoadOp, Operations, PipelineLayoutDescriptor, PowerPreference, PresentMode, PrimitiveTopology,
+    ProgrammableStageDescriptor, Queue, RasterizationStateDescriptor,
+    RenderPassColorAttachmentDescriptor, RenderPassDepthStencilAttachmentDescriptor,
+    RenderPassDescriptor, RenderPipelineDescriptor, RequestAdapterOptions, ShaderModule,
+    ShaderStage, StencilStateDescriptor, StencilStateFaceDescriptor, Surface, SwapChain,
+    SwapChainDescriptor, TextureDescriptor, TextureDimension, TextureFormat, TextureUsage,
+    TextureView, TextureViewDescriptor, VertexBufferDescriptor, VertexStateDescriptor,
 };
 
+use dth::{
+    self,
+    gfx::{ChunkMesher, Mesh, Vertex},
+    math::Vector3,
+    math::{Matrix4, Vector2},
+    util::{self, BoxedError},
+    world::Chunk,
+};
 use log::LevelFilter;
-use std::time::{Duration, Instant};
+use std::{
+    io::Read,
+    mem,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 /// The smallest possible push-constant buffer size (in bytes) according to WGPU docs.
 /// This is the lower limit for push-constants on Vulkan.
@@ -156,6 +169,15 @@ fn create_projection(size: Vector2) -> Projection {
     )
 }
 
+fn create_shader_module<P: AsRef<Path>>(
+    device: &Device,
+    path: P,
+) -> Result<ShaderModule, BoxedError> {
+    let mut spirv_buffer = Vec::new();
+    util::buf_open(path)?.read_to_end(&mut spirv_buffer)?;
+    Ok(device.create_shader_module(wgpu::util::make_spirv(spirv_buffer.as_slice())))
+}
+
 fn main() -> Result<(), BoxedError> {
     env_logger::builder()
         .filter_level(LevelFilter::Error)
@@ -172,15 +194,136 @@ fn main() -> Result<(), BoxedError> {
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
     });
 
-    let _view_buffer = device.create_buffer_init(&BufferInitDescriptor {
+    let view_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
-        contents: View(Matrix4::look_at(
-            (0.0, 10.0, -20.0).into(),
-            Vector3::splat(0.0),
-            Vector3::up(),
-        ))
-        .to_bytes(),
+        contents: View(Matrix4::identity()).to_bytes(),
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+    });
+
+    let basic_chunk_vs = create_shader_module(&device, "res/shaders/basic_chunk_wgpu.vert.spv")?;
+    let basic_chunk_fs = create_shader_module(&device, "res/shaders/basic_chunk_wgpu.frag.spv")?;
+
+    let basic_chunk_primary_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                // projection
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::VERTEX,
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        // min_binding_size: NonZeroU64::new(mem::size_of::<Projection>() as u64),
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // view
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::VERTEX,
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        // min_binding_size: NonZeroU64::new(mem::size_of::<View>() as u64),
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let basic_chunk_primary_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &basic_chunk_primary_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(projection_buffer.slice(..)),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Buffer(view_buffer.slice(..)),
+            },
+        ],
+    });
+
+    let basic_chunk_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&basic_chunk_primary_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let basic_chunk_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&basic_chunk_pipeline_layout),
+        vertex_stage: ProgrammableStageDescriptor {
+            module: &basic_chunk_vs,
+            entry_point: "main",
+        },
+        fragment_stage: Some(ProgrammableStageDescriptor {
+            module: &basic_chunk_fs,
+            entry_point: "main",
+        }),
+        rasterization_state: Some(RasterizationStateDescriptor {
+            front_face: FrontFace::Cw,
+            cull_mode: CullMode::Back,
+            clamp_depth: false,
+            depth_bias: 0,
+            depth_bias_slope_scale: 0.0,
+            depth_bias_clamp: 0.0,
+        }),
+        primitive_topology: PrimitiveTopology::TriangleList,
+        color_states: &[ColorStateDescriptor {
+            format: TextureFormat::Bgra8Unorm,
+            color_blend: BlendDescriptor {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::OneMinusSrcAlpha,
+                operation: BlendOperation::Add,
+            },
+            alpha_blend: BlendDescriptor {
+                src_factor: BlendFactor::One,
+                dst_factor: BlendFactor::OneMinusSrcAlpha,
+                operation: BlendOperation::Add,
+            },
+            write_mask: ColorWrite::ALL,
+        }],
+        depth_stencil_state: Some(DepthStencilStateDescriptor {
+            format: TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: CompareFunction::Less,
+            stencil: StencilStateDescriptor {
+                front: StencilStateFaceDescriptor::IGNORE,
+                back: StencilStateFaceDescriptor::IGNORE,
+                read_mask: 0,
+                write_mask: 0,
+            },
+        }),
+        vertex_state: VertexStateDescriptor {
+            index_format: IndexFormat::Uint32,
+            vertex_buffers: &[VertexBufferDescriptor {
+                stride: mem::size_of::<Vertex>() as u64,
+                step_mode: InputStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Uint],
+            }],
+        },
+        sample_count: 1,
+        sample_mask: !0,
+        alpha_to_coverage_enabled: false,
+    });
+
+    let chunk = Chunk::default();
+    let mut mesh = Mesh::default();
+    ChunkMesher::default().mesh(&chunk, &mut mesh);
+
+    let mesh_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(mesh.vertices().as_slice()),
+        usage: BufferUsage::VERTEX,
+    });
+    let mesh_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(mesh.indices().as_slice()),
+        usage: BufferUsage::INDEX,
     });
 
     let mut frame_rate_timer = Instant::now();
@@ -189,11 +332,18 @@ fn main() -> Result<(), BoxedError> {
     let mut update_delta_time = 0.0;
     let update_rate = Duration::from_secs_f32(1.0 / 60.0);
 
+    let mut mouse_pos = Vector2::default();
     'running: loop {
         let mut projection_dirty = None;
+        let mut mouse_dirty = false;
+
         while let Some(event) = event_pump.poll_event() {
             match event {
                 Event::Quit { .. } => break 'running,
+                Event::MouseMotion { x, y, .. } => {
+                    mouse_pos = (x, y).into();
+                    mouse_dirty = true;
+                }
                 Event::Window { win_event, .. } => {
                     if let WindowEvent::Resized(w, h) = win_event {
                         target.synchronize_size(&device, (w as u32, h as u32));
@@ -212,6 +362,23 @@ fn main() -> Result<(), BoxedError> {
             update_delta_time -= update_rate.as_secs_f32();
         }
 
+        if mouse_dirty {
+            // let size = target.size();
+            // let center = size / 2.0;
+            // let view_space_position = (mouse_pos - center) / size;
+
+            queue.write_buffer(
+                &view_buffer,
+                0,
+                View(Matrix4::look_at(
+                    (-8.0, 0.0, -8.0).into(),
+                    (0.0, 0.0, 0.0).into(),
+                    Vector3::up(),
+                ))
+                .to_bytes(),
+            );
+        }
+
         // The render buffers will automatically be swapped when this texture drops
         let current_frame = target.swap_chain.get_current_frame()?;
 
@@ -221,15 +388,15 @@ fn main() -> Result<(), BoxedError> {
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-            let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &current_frame.output.view,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color {
-                            r: 0.678,
-                            g: 0.847,
-                            b: 0.902,
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
                             a: 1.0,
                         }),
                         store: true,
@@ -244,6 +411,12 @@ fn main() -> Result<(), BoxedError> {
                     stencil_ops: None,
                 }),
             });
+
+            render_pass.set_pipeline(&basic_chunk_pipeline);
+            render_pass.set_bind_group(0, &basic_chunk_primary_bind_group, &[]);
+            render_pass.set_index_buffer(mesh_index_buffer.slice(..));
+            render_pass.set_vertex_buffer(0, mesh_vertex_buffer.slice(..));
+            render_pass.draw_indexed(0..mesh.indices().len() as u32, 0, 0..1);
         }
         queue.submit(Some(encoder.finish()));
 
