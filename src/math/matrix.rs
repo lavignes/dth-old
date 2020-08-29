@@ -46,6 +46,42 @@ impl Matrix4 {
     }
 
     #[inline]
+    pub fn rotate_right(angle: f32) -> Matrix4 {
+        let sin_theta = angle.sin();
+        let cos_theta = angle.cos();
+        Matrix4([
+            Vector4([1.0, 0.0, 0.0, 0.0]),
+            Vector4([0.0, cos_theta, -sin_theta, 0.0]),
+            Vector4([0.0, sin_theta, cos_theta, 0.0]),
+            Vector4([0.0, 0.0, 0.0, 1.0]),
+        ])
+    }
+
+    #[inline]
+    pub fn rotate_up(angle: f32) -> Matrix4 {
+        let sin_theta = angle.sin();
+        let cos_theta = angle.cos();
+        Matrix4([
+            Vector4([cos_theta, 0.0, sin_theta, 0.0]),
+            Vector4([0.0, 1.0, 0.0, 0.0]),
+            Vector4([-sin_theta, 0.0, cos_theta, 0.0]),
+            Vector4([0.0, 0.0, 0.0, 1.0]),
+        ])
+    }
+
+    #[inline]
+    pub fn rotate_forward(angle: f32) -> Matrix4 {
+        let sin_theta = angle.sin();
+        let cos_theta = angle.cos();
+        Matrix4([
+            Vector4([cos_theta, -sin_theta, 0.0, 0.0]),
+            Vector4([sin_theta, cos_theta, 0.0, 0.0]),
+            Vector4([0.0, 0.0, 1.0, 0.0]),
+            Vector4([0.0, 0.0, 0.0, 1.0]),
+        ])
+    }
+
+    #[inline]
     pub fn perspective(fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4 {
         let depth = near - far;
         let tan_fov = (fov / 2.0).tan();

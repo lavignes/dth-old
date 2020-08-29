@@ -1,6 +1,7 @@
 use futures::executor;
 use sdl2::{
     event::{Event, WindowEvent},
+    keyboard::Keycode,
     video::Window,
     Sdl,
 };
@@ -21,14 +22,17 @@ use wgpu::{
 
 use dth::{
     self,
+    gfx::Frustum,
     gfx::{ChunkMesher, Mesh, Vertex},
+    math::Quaternion,
     math::Vector3,
-    math::{Matrix4, Vector2},
+    math::{self, Matrix4, Vector2},
     util::{self, BoxedError},
     world::Chunk,
 };
 use log::LevelFilter;
 use std::{
+    f32,
     io::Read,
     mem,
     num::NonZeroU64,
@@ -93,10 +97,18 @@ impl WindowTarget {
         }
     }
 
+    #[inline]
     fn size(&self) -> Vector2 {
         self.window.size().into()
     }
 
+    #[inline]
+    fn aspect_ratio(&self) -> f32 {
+        let size = self.size();
+        size.x() / size.y()
+    }
+
+    #[inline]
     fn synchronize_size(&mut self, device: &Device, size: (u32, u32)) {
         self.swap_chain = WindowTarget::create_swap_chain(&device, &self.surface, size);
         self.depth_buffer = WindowTarget::create_depth_buffer(&device, size);
@@ -112,6 +124,7 @@ impl WindowTarget {
                 height: size.1,
                 // v-sync
                 present_mode: PresentMode::Immediate,
+                // present_mode: PresentMode::Fifo,
             },
         )
     }
@@ -165,7 +178,7 @@ impl View {
 
 fn create_projection(size: Vector2) -> Projection {
     Projection(
-        &Matrix4::perspective(1.0, size.x() / size.y(), 0.1, 60000.0)
+        &Matrix4::perspective(1.0, size.x() / size.y(), 0.001, 60000.0)
             * &Matrix4::vulkan_projection_correct(),
     )
 }
@@ -189,15 +202,18 @@ fn main() -> Result<(), BoxedError> {
     let mut event_pump = sdl.event_pump()?;
     let (mut target, device, queue) = setup_rendering(&sdl, (800, 600).into())?;
 
+    let mut view = View(Matrix4::identity());
+    let mut projection = create_projection(target.size());
+
     let projection_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
-        contents: create_projection(target.size()).to_bytes(),
+        contents: projection.to_bytes(),
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
     });
 
     let view_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
-        contents: View(Matrix4::identity()).to_bytes(),
+        contents: view.to_bytes(),
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
     });
 
@@ -272,6 +288,7 @@ fn main() -> Result<(), BoxedError> {
             depth_bias_clamp: 0.0,
         }),
         primitive_topology: PrimitiveTopology::TriangleList,
+        // primitive_topology: PrimitiveTopology::LineList,
         color_states: &[ColorStateDescriptor {
             format: TextureFormat::Bgra8Unorm,
             color_blend: BlendDescriptor {
@@ -302,7 +319,7 @@ fn main() -> Result<(), BoxedError> {
             vertex_buffers: &[VertexBufferDescriptor {
                 stride: mem::size_of::<Vertex>() as u64,
                 step_mode: InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Uint],
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float3],
             }],
         },
         sample_count: 1,
@@ -310,20 +327,33 @@ fn main() -> Result<(), BoxedError> {
         alpha_to_coverage_enabled: false,
     });
 
-    let chunk = Chunk::default();
-    let mut mesh = Mesh::default();
-    ChunkMesher::default().mesh(&chunk, &mut mesh);
+    let mut mesher = ChunkMesher::default();
+    let mut meshes = Vec::with_capacity(64 * 64);
+    let mut chunks = Vec::with_capacity(64 * 64);
 
-    let mesh_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::cast_slice(mesh.vertices().as_slice()),
-        usage: BufferUsage::VERTEX,
-    });
-    let mesh_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::cast_slice(mesh.indices().as_slice()),
-        usage: BufferUsage::INDEX,
-    });
+    let mut mesh_vertex_buffers = Vec::with_capacity(64 * 64);
+    let mut mesh_index_buffers = Vec::with_capacity(64 * 64);
+
+    for z in 0..64 {
+        for x in 0..64 {
+            let mut chunk = Chunk::randomized();
+            let mut mesh = Mesh::default();
+            chunk.set_position((x as f32 * 16.0, 0.0, z as f32 * 16.0).into());
+            mesher.greedy(&chunk, &mut mesh);
+            mesh_vertex_buffers.push(device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(mesh.vertices().as_slice()),
+                usage: BufferUsage::VERTEX,
+            }));
+            mesh_index_buffers.push(device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(mesh.indices().as_slice()),
+                usage: BufferUsage::INDEX,
+            }));
+            chunks.push(chunk);
+            meshes.push(mesh);
+        }
+    }
 
     let mut frame_rate_timer = Instant::now();
     let mut frame_rate = 0;
@@ -332,9 +362,30 @@ fn main() -> Result<(), BoxedError> {
     let update_rate = Duration::from_secs_f32(1.0 / 60.0);
 
     let mut mouse_pos = Vector2::default();
+    let mut camera_euler_angles = Vector2::new(4.0, 0.0);
+    let mut camera_position = Vector3::new(-16.0, 8.0, -16.0);
+    // TODO: not synced with projection creation (maybe make a new struct of projection components)
+    let mut frustum = Frustum::new(
+        1.0,
+        target.aspect_ratio(),
+        0.001,
+        60000.0,
+        camera_position,
+        camera_position - Vector3::forward(),
+        Vector3::up(),
+    );
+
+    let mut w = false;
+    let mut s = false;
+    let mut a = false;
+    let mut d = false;
+    let mut l_shift = false;
+    let mut space = false;
+
     'running: loop {
         let mut projection_dirty = None;
         let mut mouse_dirty = false;
+        let mut physics_dirty = false;
 
         while let Some(event) = event_pump.poll_event() {
             match event {
@@ -349,40 +400,111 @@ fn main() -> Result<(), BoxedError> {
                         projection_dirty = Some((w, h).into());
                     }
                 }
+                Event::KeyDown { keycode, .. } => match keycode {
+                    Some(Keycode::Q) => {
+                        for (i, chunk) in chunks.iter_mut().enumerate() {
+                            chunk.randomize();
+                            let mesh = &mut meshes[i];
+                            mesher.greedy(&chunk, mesh);
+                            mesh_vertex_buffers[i] =
+                                device.create_buffer_init(&BufferInitDescriptor {
+                                    label: None,
+                                    contents: bytemuck::cast_slice(mesh.vertices().as_slice()),
+                                    usage: BufferUsage::VERTEX,
+                                });
+                            mesh_index_buffers[i] =
+                                device.create_buffer_init(&BufferInitDescriptor {
+                                    label: None,
+                                    contents: bytemuck::cast_slice(mesh.indices().as_slice()),
+                                    usage: BufferUsage::INDEX,
+                                });
+                        }
+                    }
+                    Some(Keycode::W) => w = true,
+                    Some(Keycode::S) => s = true,
+                    Some(Keycode::A) => a = true,
+                    Some(Keycode::D) => d = true,
+                    Some(Keycode::LShift) => l_shift = true,
+                    Some(Keycode::Space) => space = true,
+                    _ => (),
+                },
+                Event::KeyUp { keycode, .. } => match keycode {
+                    Some(Keycode::W) => w = false,
+                    Some(Keycode::S) => s = false,
+                    Some(Keycode::A) => a = false,
+                    Some(Keycode::D) => d = false,
+                    Some(Keycode::LShift) => l_shift = false,
+                    Some(Keycode::Space) => space = false,
+                    _ => (),
+                },
                 _ => {}
             }
+        }
+
+        if mouse_dirty {
+            let size = target.size();
+            let center = size / 2.0;
+            let delta = mouse_pos - center;
+            camera_euler_angles = Vector2::new(
+                math::normalize_angle(camera_euler_angles.x() + delta.x() * 0.002),
+                math::normalize_angle(camera_euler_angles.y() + -delta.y() * 0.002),
+            );
+            sdl.mouse()
+                .warp_mouse_in_window(&target.window, center.x() as i32, center.y() as i32);
         }
 
         // Fixed update
         update_delta_time += update_timer.elapsed().as_secs_f32();
         update_timer = Instant::now();
-
         while update_delta_time > update_rate.as_secs_f32() {
             update_delta_time -= update_rate.as_secs_f32();
+            physics_dirty = true;
+
+            // TODO: These should add velocity instead
+            if w {
+                let theta = camera_euler_angles.x();
+                camera_position -= (theta.sin(), 0.0, theta.cos()).into();
+            } else if s {
+                let theta = camera_euler_angles.x();
+                camera_position += (theta.sin(), 0.0, theta.cos()).into();
+            }
+
+            if a {
+                let theta = camera_euler_angles.x() + f32::consts::FRAC_PI_2;
+                camera_position += (theta.sin(), 0.0, theta.cos()).into();
+            } else if d {
+                let theta = camera_euler_angles.x() - f32::consts::FRAC_PI_2;
+                camera_position += (theta.sin(), 0.0, theta.cos()).into();
+            }
+
+            if space {
+                camera_position += (0.0, 1.0, 0.0).into();
+            } else if l_shift {
+                camera_position += (0.0, -1.0, 0.0).into();
+            }
         }
 
-        if mouse_dirty {
-            // let size = target.size();
-            // let center = size / 2.0;
-            // let view_space_position = (mouse_pos - center) / size;
+        if mouse_dirty || physics_dirty {
+            let camera_quaternion = Quaternion::from_angle_up(camera_euler_angles.x())
+                * Quaternion::from_angle_right(camera_euler_angles.y());
 
-            queue.write_buffer(
-                &view_buffer,
-                0,
-                View(Matrix4::look_at(
-                    (-8.0, 0.0, -8.0).into(),
-                    (0.0, 0.0, 0.0).into(),
-                    Vector3::up(),
-                ))
-                .to_bytes(),
-            );
+            // Here we create a unit vector from the camera in the direction of the camera angle
+            // I don't understand exactly why the rotation quaternion is "backward"
+            let at = camera_position - camera_quaternion.forward_axis();
+            // Then we can pass it to the handy look at matrix
+            view = View(Matrix4::look_at(camera_position, at, Vector3::up()));
+
+            queue.write_buffer(&view_buffer, 0, view.to_bytes());
+            frustum.update_look_at(camera_position, at, Vector3::up());
         }
 
         // The render buffers will automatically be swapped when this texture drops
         let current_frame = target.swap_chain.get_current_frame()?;
 
         if let Some(size) = projection_dirty {
-            queue.write_buffer(&projection_buffer, 0, create_projection(size).to_bytes());
+            projection = create_projection(size);
+            queue.write_buffer(&projection_buffer, 0, projection.to_bytes());
+            frustum.update_projection(1.0, target.aspect_ratio(), 0.001, 60000.0);
         }
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -393,9 +515,9 @@ fn main() -> Result<(), BoxedError> {
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
+                            r: 0.678,
+                            g: 0.847,
+                            b: 0.902,
                             a: 1.0,
                         }),
                         store: true,
@@ -413,9 +535,20 @@ fn main() -> Result<(), BoxedError> {
 
             render_pass.set_pipeline(&basic_chunk_pipeline);
             render_pass.set_bind_group(0, &basic_chunk_primary_bind_group, &[]);
-            render_pass.set_index_buffer(mesh_index_buffer.slice(..));
-            render_pass.set_vertex_buffer(0, mesh_vertex_buffer.slice(..));
-            render_pass.draw_indexed(0..mesh.indices().len() as u32, 0, 0..1);
+
+            for (((chunk, mesh), mesh_vertex_buffer), mesh_index_buffer) in chunks
+                .iter()
+                .zip(&meshes)
+                .zip(&mesh_vertex_buffers)
+                .zip(&mesh_index_buffers)
+            {
+                if !frustum.infinite_cylinder_inside(chunk.position() + Vector3::splat(8.0), 16.0) {
+                    continue;
+                }
+                render_pass.set_vertex_buffer(0, mesh_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh_index_buffer.slice(..));
+                render_pass.draw_indexed(0..mesh.indices().len() as u32, 0, 0..1);
+            }
         }
         queue.submit(Some(encoder.finish()));
 

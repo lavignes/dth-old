@@ -9,7 +9,7 @@ layout(set = 0, binding = 1) uniform View {
 };
 
 layout(location = 0) in vec3 position;
-layout(location = 1) in uint diffuse;
+layout(location = 1) in vec3 diffuse;
 
 layout(location = 0) out vec3 out_diffuse;
 
@@ -24,5 +24,5 @@ void main() {
     gl_Position = projection * world_position;
 
     // Send rest to frag shader
-    out_diffuse = vec3(1.0, 1.0, 1.0) * (diffuse / 32.0);
+    out_diffuse = diffuse;
 }

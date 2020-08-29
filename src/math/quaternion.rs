@@ -53,20 +53,22 @@ impl Quaternion {
 
     #[inline]
     pub fn right_axis(&self) -> Vector3 {
-        // Essentially cancel out the rotation to get the vector part
-        (*self * Vector3::right() * self.conjugated()).0.narrow()
+        Vector3::right().rotated(*self)
+    }
+
+    #[inline]
+    pub fn left_axis(&self) -> Vector3 {
+        Vector3::left().rotated(*self)
     }
 
     #[inline]
     pub fn up_axis(&self) -> Vector3 {
-        // Essentially cancel out the rotation to get the vector part
-        (*self * Vector3::up() * self.conjugated()).0.narrow()
+        Vector3::up().rotated(*self)
     }
 
     #[inline]
     pub fn forward_axis(&self) -> Vector3 {
-        // Essentially cancel out the rotation to get the vector part
-        (*self * Vector3::forward() * self.conjugated()).0.narrow()
+        Vector3::forward().rotated(*self)
     }
 
     /// A *very* fast interpolation. Only really useful for
@@ -132,7 +134,7 @@ impl Mul<Vector3> for Quaternion {
             self.0[3] * rhs.0[0] + self.0[1] * rhs.0[2] - self.0[2] * rhs.0[1],
             self.0[3] * rhs.0[1] + self.0[2] * rhs.0[0] - self.0[0] * rhs.0[2],
             self.0[3] * rhs.0[2] + self.0[0] * rhs.0[1] - self.0[1] * rhs.0[0],
-            -self.0[0] * rhs.0[0] - self.0[2] * rhs.0[1] - self.0[2] * rhs.0[2],
+            -self.0[0] * rhs.0[0] - self.0[1] * rhs.0[1] - self.0[2] * rhs.0[2],
         ]))
     }
 }

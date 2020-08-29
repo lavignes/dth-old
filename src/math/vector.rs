@@ -1,8 +1,9 @@
+use crate::math::Quaternion;
 use std::{
     cmp::PartialEq,
     convert::From,
     f32,
-    ops::{Add, AddAssign, Div, Index, IndexMut, Mul, MulAssign, Neg, Sub},
+    ops::{Add, AddAssign, Div, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
 #[repr(C)]
@@ -290,6 +291,11 @@ impl Vector3 {
     }
 
     #[inline]
+    pub fn rotated(&self, rotation: Quaternion) -> Vector3 {
+        (rotation * *self * rotation.conjugated()).0.narrow()
+    }
+
+    #[inline]
     pub fn dot(&self, rhs: Vector3) -> f32 {
         (self.0[0] * rhs.0[0]) + (self.0[1] * rhs.0[1]) + (self.0[2] * rhs.0[2])
     }
@@ -315,6 +321,15 @@ impl AddAssign for Vector3 {
         self.0[0] += rhs.0[0];
         self.0[1] += rhs.0[1];
         self.0[2] += rhs.0[2];
+    }
+}
+
+impl SubAssign for Vector3 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Vector3) {
+        self.0[0] -= rhs.0[0];
+        self.0[1] -= rhs.0[1];
+        self.0[2] -= rhs.0[2];
     }
 }
 
@@ -367,6 +382,14 @@ impl Add<f32> for Vector3 {
     #[inline]
     fn add(self, rhs: f32) -> Vector3 {
         Vector3([self.0[0] + rhs, self.0[1] + rhs, self.0[2] + rhs])
+    }
+}
+
+impl Sub<f32> for Vector3 {
+    type Output = Vector3;
+    #[inline]
+    fn sub(self, rhs: f32) -> Vector3 {
+        Vector3([self.0[0] - rhs, self.0[1] - rhs, self.0[2] - rhs])
     }
 }
 

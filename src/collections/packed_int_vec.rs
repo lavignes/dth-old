@@ -2,7 +2,7 @@ use std::mem;
 
 const BITS_IN_U64: usize = mem::size_of::<u64>() * 8;
 
-/// A vec-like collections that stores integers up to 64-bits in a packed format.
+/// A vec-like collection that stores unsigned integers up to 64-bits in a packed format.
 ///
 /// # Examples
 ///
@@ -43,23 +43,49 @@ impl PackedIntVec {
     #[inline]
     pub fn filled(int_size: u32, len: usize, value: u64) -> PackedIntVec {
         let mut vec = PackedIntVec::with_capacity(int_size, len);
-        for _ in 0..len {
-            vec.push(value);
-        }
+        vec.fill(len, value);
         vec
     }
 
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.len = 0;
+    }
+
+    pub fn fill(&mut self, len: usize, value: u64) {
+        self.clear();
+        assert!(value <= self.max_item);
+        self.len = len;
+
+        let mut cell_index = 0;
+        let mut cell_subindex = 0;
+        for _ in 0..len {
+            if cell_index >= self.inner.len() {
+                self.inner.push(0);
+            }
+            let shift_amt = cell_subindex * self.item_size;
+            self.inner[cell_index] |= value << shift_amt;
+
+            // test for end of cell
+            cell_subindex += 1;
+            if cell_subindex >= self.items_per_cell {
+                cell_index += 1;
+                cell_subindex = 0;
+            }
+        }
+    }
+
     /// Create a new packed integer vec pre-allocated for `capacity` `int_size`-bit integers.
-    /// The vec will always hold at least 4-bit integers.
     ///
     /// # Panics
     ///
-    /// Panics if `int_size` > 64.
+    /// Panics if 0 >= `int_size` > 64.
     pub fn with_capacity(int_size: u32, capacity: usize) -> PackedIntVec {
         assert!(int_size <= BITS_IN_U64 as u32);
-        // minimum of 4 bits plz
+        assert_ne!(0, int_size);
         let max_item = if int_size != BITS_IN_U64 as u32 {
-            2u64.pow(int_size).next_power_of_two().max(16) - 1
+            2u64.pow(int_size).next_power_of_two() - 1
         } else {
             u64::max_value()
         };
@@ -79,7 +105,9 @@ impl PackedIntVec {
     /// # Panics
     ///
     /// * If any element in self does not fit in `new_int_size` bits.
-    /// * If `new_int_size` > 64
+    /// * If 0 >= `new_int_size` > 64
+    ///
+    #[inline]
     pub fn resized_copy(&self, new_int_size: u32) -> PackedIntVec {
         PackedIntVec::from_iter(new_int_size, self)
     }
@@ -89,13 +117,13 @@ impl PackedIntVec {
     /// # Panics
     ///
     /// * If any element in self does not fit in `int_size` bits.
-    /// * If `int_size` > 64
+    /// * If 0 >= `int_size` > 64
     pub fn from_iter<I>(int_size: u32, iter: I) -> PackedIntVec
     where
         I: IntoIterator<Item = u64>,
     {
         let iter = iter.into_iter();
-        let mut copy = if let Some(hint) = iter.size_hint().1 {
+        let mut vec = if let Some(hint) = iter.size_hint().1 {
             PackedIntVec::with_capacity(int_size, hint)
         } else {
             PackedIntVec::with_capacity(int_size, 0)
@@ -104,21 +132,22 @@ impl PackedIntVec {
         let mut cell_index = 0;
         let mut cell_subindex = 0;
         for value in iter {
-            assert!(value <= copy.max_item);
-            if cell_index >= copy.inner.len() {
-                copy.inner.push(0);
+            assert!(value <= vec.max_item);
+            vec.len += 1;
+            if cell_index >= vec.inner.len() {
+                vec.inner.push(0);
             }
-            let shift_amt = cell_subindex * copy.item_size;
-            copy.inner[cell_index] |= value << shift_amt;
+            let shift_amt = cell_subindex * vec.item_size;
+            vec.inner[cell_index] |= value << shift_amt;
 
             // test for end of cell
             cell_subindex += 1;
-            if cell_subindex >= copy.items_per_cell {
+            if cell_subindex >= vec.items_per_cell {
                 cell_index += 1;
                 cell_subindex = 0;
             }
         }
-        copy
+        vec
     }
 
     #[inline]
@@ -240,11 +269,11 @@ mod test {
 
     #[test]
     fn max_items() {
-        let p = PackedIntVec::new(0);
-        assert_eq!(0x0F, p.max_item);
+        let p = PackedIntVec::new(1);
+        assert_eq!(0x01, p.max_item);
 
         let p = PackedIntVec::new(2);
-        assert_eq!(0x0F, p.max_item);
+        assert_eq!(0x03, p.max_item);
 
         let p = PackedIntVec::new(4);
         assert_eq!(0x0F, p.max_item);

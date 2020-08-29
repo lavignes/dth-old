@@ -23,6 +23,7 @@ pub struct HashPool<I: Id, V> {
 }
 
 impl<I: Id, V> Default for HashPool<I, V> {
+    #[inline]
     fn default() -> HashPool<I, V> {
         HashPool {
             id: I::default(),

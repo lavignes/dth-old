@@ -1,8 +1,5 @@
-use crate::{
-    collections::{PackedIntVec, PackedIntVecIterator},
-    math::IntLog2,
-};
-use std::hash::Hash;
+use crate::collections::{PackedIntVec, PackedIntVecIterator};
+use std::{hash::Hash, iter::FromIterator};
 
 #[derive(Debug)]
 pub struct PaletteVec<T>
@@ -23,18 +20,33 @@ where
 {
     #[inline]
     pub fn filled(palette_capacity: usize, len: usize, value: T) -> PaletteVec<T> {
-        PaletteVec {
-            palette: vec![value],
-            indices: PackedIntVec::filled((palette_capacity as u64).log2() as u32, len, 0),
-        }
+        let mut vec = PaletteVec::with_capacity(palette_capacity, len);
+        vec.fill(len, value);
+        vec
     }
 
     #[inline]
     pub fn with_capacity(palette_capacity: usize, capacity: usize) -> PaletteVec<T> {
         PaletteVec {
             palette: Vec::with_capacity(capacity),
-            indices: PackedIntVec::with_capacity((palette_capacity as u64).log2() as u32, capacity),
+            indices: PackedIntVec::with_capacity(
+                (palette_capacity as f64).log2().ceil() as u32,
+                capacity,
+            ),
         }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.palette.clear();
+        self.indices.clear();
+    }
+
+    #[inline]
+    pub fn fill(&mut self, len: usize, value: T) {
+        self.palette.clear();
+        self.palette.push(value);
+        self.indices.fill(len, 0);
     }
 
     #[inline]
@@ -42,8 +54,11 @@ where
         &self.palette[self.indices.get(index) as usize]
     }
 
+    /// Get a mutable ref to the value in the palette found at `index`.
+    ///
+    /// Mutating this ref mutates all items that share this palette value.
     #[inline]
-    pub fn get_mut(&mut self, index: usize) -> &mut T {
+    pub fn get_palette_mut(&mut self, index: usize) -> &mut T {
         &mut self.palette[self.indices.get(index) as usize]
     }
 
@@ -70,6 +85,21 @@ where
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    #[inline]
+    pub fn palette_len(&self) -> usize {
+        self.palette.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    #[inline]
     pub fn iter(&self) -> PaletteVecIterator<T> {
         PaletteVecIterator {
             inner: self,
@@ -80,12 +110,30 @@ where
     #[inline]
     fn try_grow_palette(&mut self) {
         // The palette is full! :(
-        if self.palette.len() >= self.indices.max_item() as usize {
+        if self.palette.len() > self.indices.max_item() as usize {
             // Have to re-allocate the indices
             self.indices = self
                 .indices
-                .resized_copy((self.palette.capacity() as u64).log2() as u32);
+                .resized_copy((self.palette.len() as f64).log2().ceil() as u32);
         }
+    }
+}
+
+impl<T> FromIterator<T> for PaletteVec<T>
+where
+    T: Eq + Default + Hash + Clone,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> PaletteVec<T> {
+        let iter = iter.into_iter();
+        let mut vec = if let Some(hint) = iter.size_hint().1 {
+            PaletteVec::with_capacity(16, hint)
+        } else {
+            PaletteVec::with_capacity(16, 0)
+        };
+        for item in iter {
+            vec.push(item);
+        }
+        vec
     }
 }
 
@@ -147,8 +195,7 @@ mod test {
             p.push(i);
         }
         assert_eq!(2, p.palette.len());
-        // there is a minimum of 4-bits
-        assert_eq!(0xF, p.indices.max_item());
+        assert_eq!(3, p.indices.max_item());
 
         for i in 2..18 {
             p.push(i);

@@ -1,10 +1,16 @@
-use crate::{math::Vector3, world::Chunk};
+use crate::math::Vector3;
+
+mod frustum;
+mod mesher;
+
+pub use frustum::*;
+pub use mesher::*;
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Vertex {
     pub position: Vector3,
-    pub diffuse: u32,
+    pub diffuse: Vector3,
 }
 
 unsafe impl bytemuck::Zeroable for Vertex {}
@@ -35,48 +41,12 @@ const CUBE_INDICES: [u32; 36] = [
 ];
 
 const CUBE_VERTEX_POSITIONS: [Vector3; 8] = [
-    Vector3::new(-0.5, -0.5, 0.5),
-    Vector3::new(0.5, -0.5, 0.5),
-    Vector3::new(-0.5, 0.5, 0.5),
-    Vector3::new(0.5, 0.5, 0.5),
-    Vector3::new(-0.5, 0.5, -0.5),
-    Vector3::new(0.5, 0.5, -0.5),
-    Vector3::new(-0.5, -0.5, -0.5),
-    Vector3::new(0.5, -0.5, -0.5),
+    Vector3::new(0.0, 0.0, 1.0),
+    Vector3::new(1.0, 0.0, 1.0),
+    Vector3::new(0.0, 1.0, 1.0),
+    Vector3::new(1.0, 1.0, 1.0),
+    Vector3::new(0.0, 1.0, 0.0),
+    Vector3::new(1.0, 1.0, 0.0),
+    Vector3::new(0.0, 0.0, 0.0),
+    Vector3::new(1.0, 0.0, 0.0),
 ];
-
-#[derive(Default)]
-pub struct ChunkMesher {}
-
-impl ChunkMesher {
-    pub fn mesh(&self, chunk: &Chunk, mesh: &mut Mesh) {
-        mesh.indices.clear();
-        mesh.vertices.clear();
-        let mut index_offset = 0;
-        // Get the world-space location of the chunk to build the vertex list
-        let origin = Vector3::new(chunk.position().x(), 0.0, chunk.position().y());
-        for section in chunk.sections() {
-            for (index, _tile) in section.cube().iter_indexed() {
-                let index_parts: (usize, usize, usize) = index.into();
-                let offset = origin + Vector3::from(index_parts);
-                mesh.vertices
-                    .extend(CUBE_VERTEX_POSITIONS.iter().map(|pos| Vertex {
-                        position: *pos + offset,
-                        diffuse: offset.y() as u32,
-                    }));
-                index_offset += CUBE_VERTEX_POSITIONS.len();
-                mesh.indices.extend(
-                    CUBE_INDICES
-                        .iter()
-                        .map(|index| *index + index_offset as u32),
-                );
-            }
-        }
-
-        log::debug!(
-            "Meshed a chunk -- {} vertices {} indices",
-            mesh.vertices.len(),
-            mesh.indices.len()
-        );
-    }
-}
