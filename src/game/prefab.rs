@@ -8,6 +8,8 @@ use crate::{
 pub enum Prefab {}
 
 impl Prefab {
+    pub fn clear(&mut self) {}
+
     pub fn to_actor(&self, _scene: &mut SceneGraph) -> Actor {
         Actor::default()
     }

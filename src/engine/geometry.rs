@@ -1,3 +1,4 @@
+use crate::collections::PoolObject;
 use crate::{
     collections::PoolId,
     engine::{CollisionMeshId, SurfaceId},
@@ -28,6 +29,16 @@ impl Default for Geometry {
     }
 }
 
+impl PoolObject for Geometry {
+    #[inline]
+    fn clear(&mut self) {
+        match self {
+            Geometry::StaticMap(map) => map.clear(),
+            _ => todo!("{:?}", self),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Sector {
     surfaces: Vec<SurfaceId>,
@@ -41,6 +52,12 @@ pub struct StaticMap {
 }
 
 impl StaticMap {
+    #[inline]
+    pub fn clear(&mut self) {
+        self.collision_mesh = None;
+        self.sectors.clear();
+    }
+
     #[inline]
     pub fn render_node(&self) -> NodeId {
         self.render_node

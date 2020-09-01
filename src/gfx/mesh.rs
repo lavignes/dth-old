@@ -1,3 +1,4 @@
+use crate::collections::PoolObject;
 use crate::{
     collections::PoolId,
     math::{Vector2, Vector3},
@@ -17,6 +18,16 @@ impl PoolId for RenderMeshId {
 pub enum RenderMesh {
     AnimatedMesh(AnimatedMesh),
     Todo,
+}
+
+impl PoolObject for RenderMesh {
+    #[inline]
+    fn clear(&mut self) {
+        match self {
+            RenderMesh::AnimatedMesh(mesh) => mesh.clear(),
+            _ => todo!("{:?}", self),
+        }
+    }
 }
 
 impl Default for RenderMesh {

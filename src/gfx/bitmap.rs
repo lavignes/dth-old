@@ -3,6 +3,7 @@ use std::{
     mem, u16, u32,
 };
 
+use crate::collections::PoolObject;
 use crate::{collections::PoolId, math::Vector2, util};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
@@ -42,6 +43,13 @@ impl Bitmap {
     #[inline]
     pub fn bytes_per_row(&self) -> usize {
         self.bytes_per_row
+    }
+}
+
+impl PoolObject for Bitmap {
+    #[inline]
+    fn clear(&mut self) {
+        self.clear()
     }
 }
 

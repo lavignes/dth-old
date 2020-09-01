@@ -62,7 +62,7 @@ impl Engine {
             if let Geometry::StaticMap(map) = geom {
                 let id = map.render_node();
                 let mut node = self.scene.get_node_mut_ref(id);
-                node.reset_world_transform();
+                node.clear_world_transform();
                 visitor(id, &node);
             } else {
                 todo!("{:?}", geom)

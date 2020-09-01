@@ -1,3 +1,4 @@
+use crate::collections::PoolObject;
 use crate::{
     collections::{HashPool, PoolId},
     gfx::{BitmapId, RenderMeshId},
@@ -25,7 +26,7 @@ impl Transform {
     }
 
     #[inline]
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         *self = Transform::default();
     }
 
@@ -147,8 +148,8 @@ impl Node {
     }
 
     #[inline]
-    pub fn reset_world_transform(&mut self) {
-        self.world_transform.reset();
+    pub fn clear_world_transform(&mut self) {
+        self.world_transform.clear();
     }
 
     #[inline]
@@ -159,6 +160,18 @@ impl Node {
     #[inline]
     pub fn transform_mut(&mut self) -> &mut Transform {
         &mut self.transform
+    }
+}
+
+impl PoolObject for Node {
+    #[inline]
+    fn clear(&mut self) {
+        self.parent = None;
+        self.children.clear();
+        self.kind = NodeKind::Todo;
+        self.diffuse = Vector3::splat(1.0);
+        self.transform.clear();
+        self.world_transform.clear();
     }
 }
 

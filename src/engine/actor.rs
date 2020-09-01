@@ -1,3 +1,4 @@
+use crate::collections::PoolObject;
 use crate::{
     collections::PoolId,
     engine::CollisionMesh,
@@ -44,6 +45,19 @@ impl Actor {
     #[inline]
     pub fn render_mode(&self) -> Option<&RenderMode> {
         self.render_mode.as_ref()
+    }
+}
+
+impl PoolObject for Actor {
+    #[inline]
+    fn clear(&mut self) {
+        // TODO: make this more efficient.
+        self.transform.clear();
+        self.collider = None;
+        self.render_mode = None;
+        if let Some(prefab) = &mut self.prefab {
+            Prefab::clear(prefab);
+        }
     }
 }
 

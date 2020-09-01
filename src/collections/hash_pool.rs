@@ -1,4 +1,5 @@
 use crate::collections::XorHashMap;
+use std::cell::RefCell;
 use std::{
     collections::hash_map::{Iter, IterMut},
     fmt::Debug,
@@ -12,15 +13,45 @@ pub trait PoolId: Hash + Eq + Debug + Default + Copy + Clone {
     fn next(&self) -> Self;
 }
 
+pub trait PoolObject: Default {
+    /// Clear the object prior to reuse
+    ///
+    /// A default impl for this could be:
+    /// ```
+    /// use dth::collections::PoolObject;
+    ///
+    /// #[derive(Default)]
+    /// struct Foo(usize);
+    ///
+    /// impl PoolObject for Foo {
+    ///     fn clear(&mut self) {
+    ///         *self = Foo::default()
+    ///     }   
+    /// }
+    /// ```
+    fn clear(&mut self);
+}
+
+impl<T> PoolObject for RefCell<T>
+where
+    T: PoolObject,
+{
+    #[inline]
+    fn clear(&mut self) {
+        self.borrow_mut().clear()
+    }
+}
+
 /// A hashmap-based memory pool.
 ///
 /// Rust hashmaps have a nice property that *they never implicitly shrink*.
-/// This means that they can be used as an efficient sparse data-store and memory pool.
+/// This means that they can be used as an efficient sparse data-store and memory pool for
+/// non-copy types. Otherwise we can throw items into a free-list.
 #[derive(Debug)]
 pub struct HashPool<I, V>
 where
     I: PoolId,
-    V: Default,
+    V: PoolObject,
 {
     id: I,
     inner: XorHashMap<I, V>,
@@ -30,7 +61,7 @@ where
 impl<I, V> Default for HashPool<I, V>
 where
     I: PoolId,
-    V: Default,
+    V: PoolObject,
 {
     #[inline]
     fn default() -> HashPool<I, V> {
@@ -45,7 +76,7 @@ where
 impl<I, V> HashPool<I, V>
 where
     I: PoolId,
-    V: Default,
+    V: PoolObject,
 {
     #[inline]
     pub fn new() -> HashPool<I, V> {
@@ -54,7 +85,8 @@ where
 
     #[inline]
     pub fn allocate(&mut self) -> (I, &V) {
-        if let Some(value) = self.free_list.pop() {
+        if let Some(mut value) = self.free_list.pop() {
+            value.clear();
             let id = self.register(value);
             return (id, self.get(id).unwrap());
         }
@@ -63,8 +95,14 @@ where
     }
 
     #[inline]
-    pub fn create<F: FnMut(I, &mut V)>(&mut self, mut factory: F) {
-        let (id, _) = self.allocate();
+    pub fn create<F: FnOnce(I, &mut V)>(&mut self, factory: F) {
+        if let Some(mut value) = self.free_list.pop() {
+            value.clear();
+            let id = self.register(value);
+            factory(id, self.get_mut(id).unwrap());
+            return;
+        }
+        let id = self.register(V::default());
         factory(id, self.get_mut(id).unwrap())
     }
 
