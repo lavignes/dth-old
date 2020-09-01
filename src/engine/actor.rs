@@ -24,19 +24,26 @@ pub enum Collision<'a> {
 
 #[derive(Default, Debug)]
 pub struct Actor {
-    pub transform: Transform,
-    pub collider: Option<Collider>,
-    pub render_mode: Option<RenderMode>,
-    pub prefab: Option<Prefab>,
+    transform: Transform,
+    collider: Option<Collider>,
+    render_mode: Option<RenderMode>,
+    prefab: Option<Prefab>,
 }
 
 impl Actor {
+    #[inline]
     pub fn transform(&self) -> &Transform {
         &self.transform
     }
 
+    #[inline]
     pub fn transform_mut(&mut self) -> &mut Transform {
         &mut self.transform
+    }
+
+    #[inline]
+    pub fn render_mode(&self) -> Option<&RenderMode> {
+        self.render_mode.as_ref()
     }
 }
 

@@ -81,10 +81,10 @@ fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Qu
 }
 
 struct WindowTarget {
-    pub window: Window,
-    pub surface: Surface,
-    pub swap_chain: SwapChain,
-    pub depth_buffer: TextureView,
+    window: Window,
+    surface: Surface,
+    swap_chain: SwapChain,
+    depth_buffer: TextureView,
 }
 
 impl WindowTarget {

@@ -254,8 +254,8 @@ impl ChunkMesher {
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct ChunkVertex {
-    pub position: Vector3,
-    pub diffuse: Vector3,
+    position: Vector3,
+    diffuse: Vector3,
 }
 
 unsafe impl bytemuck::Zeroable for ChunkVertex {}

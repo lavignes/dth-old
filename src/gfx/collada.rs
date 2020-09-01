@@ -30,7 +30,7 @@ enum SourceKind {
 
 #[derive(Debug, Default)]
 struct Source {
-    pub kind: Option<SourceKind>,
+    kind: Option<SourceKind>,
 }
 
 #[derive(Debug)]
@@ -42,8 +42,8 @@ enum TriangleInputKind {
 
 #[derive(Debug)]
 struct TriangleInput {
-    pub kind: TriangleInputKind,
-    pub offset: usize,
+    kind: TriangleInputKind,
+    offset: usize,
 }
 
 /// A quick and dirty collada parser

@@ -8,10 +8,10 @@ pub use geometry::*;
 pub use input::*;
 pub use mesh::*;
 
-use crate::game::Prefab;
-use crate::gfx::Node;
 use crate::{
     collections::HashPool,
+    game::Prefab,
+    gfx::Node,
     gfx::{Bitmap, BitmapId, NodeId, RenderMesh, RenderMeshId, SceneGraph},
     math::{Quaternion, Vector3},
 };
@@ -60,7 +60,7 @@ impl Engine {
         // The geoms are a set a of root scene nodes
         for (_, geom) in self.geometry.iter() {
             if let Geometry::StaticMap(map) = geom {
-                let id = map.render_node;
+                let id = map.render_node();
                 let mut node = self.scene.get_node_mut_ref(id);
                 node.reset_world_transform();
                 visitor(id, &node);
@@ -76,8 +76,8 @@ impl Engine {
             let root_world_transform = *actor.transform();
 
             // We *really* want to know if this fails (see else case)
-            if let Some(RenderMode::Node(root_node_id)) = actor.render_mode {
-                self.node_search_stack.push(root_node_id);
+            if let Some(RenderMode::Node(root_node_id)) = actor.render_mode() {
+                self.node_search_stack.push(*root_node_id);
 
                 while let Some(id) = self.node_search_stack.pop() {
                     let mut node = self.scene.get_node_mut_ref(id);
@@ -97,7 +97,7 @@ impl Engine {
                     self.node_search_stack.extend(node.children());
                 }
             } else {
-                todo!("{:?}", actor.render_mode)
+                todo!("{:?}", actor.render_mode())
             }
         }
     }

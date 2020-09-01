@@ -25,8 +25,8 @@ impl Prefab {
             .transform_mut()
             .add_position((stick0.x(), lift, -stick0.y()).into());
 
-        if let Some(RenderMode::Node(id)) = actor.render_mode {
-            let node = scene.get_node_ref(id);
+        if let Some(RenderMode::Node(id)) = actor.render_mode() {
+            let node = scene.get_node_ref(*id);
             // Example of controlling a child node from a parent
             if let Some(child_id) = node.nth_child(0) {
                 let mut node = scene.get_node_mut_ref(child_id);

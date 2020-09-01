@@ -20,7 +20,7 @@ impl PoolId for CollisionMeshId {
 
 #[derive(Debug)]
 pub struct CollisionMesh {
-    pub surfaces: Vec<Surface>,
+    surfaces: Vec<Surface>,
 }
 
 impl From<AnimatedMesh> for CollisionMesh {

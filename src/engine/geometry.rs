@@ -35,7 +35,14 @@ pub struct Sector {
 
 #[derive(Debug, Default)]
 pub struct StaticMap {
-    pub collision_mesh: Option<CollisionMeshId>,
-    pub sectors: Vec<Sector>,
-    pub render_node: NodeId,
+    collision_mesh: Option<CollisionMeshId>,
+    sectors: Vec<Sector>,
+    render_node: NodeId,
+}
+
+impl StaticMap {
+    #[inline]
+    pub fn render_node(&self) -> NodeId {
+        self.render_node
+    }
 }
