@@ -1,5 +1,4 @@
 use crate::{
-    gfx::{self, Mesh, Vertex},
     math::Vector3,
     tile::{TileFace, TileState},
     world::Chunk,
@@ -12,7 +11,7 @@ pub struct ChunkMesher {
 }
 
 impl ChunkMesher {
-    pub fn greedy(&mut self, chunk: &Chunk, mesh: &mut Mesh) {
+    pub fn greedy(&mut self, chunk: &Chunk, mesh: &mut ChunkMesh) {
         let start = Instant::now();
 
         mesh.vertices.clear();
@@ -149,7 +148,7 @@ impl ChunkMesher {
                                             ]
                                             .iter()
                                             .map(
-                                                |&position| Vertex {
+                                                |&position| ChunkVertex {
                                                     position: position + chunk_offset,
                                                     diffuse: match tile.id().0 {
                                                         1 => (0.0, 0.0, 1.0).into(),
@@ -205,7 +204,7 @@ impl ChunkMesher {
         );
     }
 
-    pub fn naive(&self, chunk: &Chunk, mesh: &mut Mesh) {
+    pub fn naive(&self, chunk: &Chunk, mesh: &mut ChunkMesh) {
         let start = Instant::now();
         mesh.indices.clear();
         mesh.vertices.clear();
@@ -226,7 +225,7 @@ impl ChunkMesher {
                 let index_parts: (usize, usize, usize) = index.into();
                 let tile_offset = chunk.position() + Vector3::from(index_parts) + cube_offset - 0.5;
                 mesh.vertices
-                    .extend(gfx::CUBE_VERTEX_POSITIONS.iter().map(|pos| Vertex {
+                    .extend(CUBE_VERTEX_POSITIONS.iter().map(|pos| ChunkVertex {
                         position: *pos + tile_offset,
                         diffuse: match tile_id {
                             1 => (0.0, 0.0, 1.0).into(),
@@ -235,11 +234,11 @@ impl ChunkMesher {
                         },
                     }));
                 mesh.indices.extend(
-                    gfx::CUBE_INDICES
+                    CUBE_INDICES
                         .iter()
                         .map(|index| *index + index_offset as u32),
                 );
-                index_offset += gfx::CUBE_VERTEX_POSITIONS.len();
+                index_offset += CUBE_VERTEX_POSITIONS.len();
             }
         }
 
@@ -251,3 +250,48 @@ impl ChunkMesher {
         );
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
+pub struct ChunkVertex {
+    pub position: Vector3,
+    pub diffuse: Vector3,
+}
+
+unsafe impl bytemuck::Zeroable for ChunkVertex {}
+
+unsafe impl bytemuck::Pod for ChunkVertex {}
+
+#[derive(Debug, Default)]
+pub struct ChunkMesh {
+    vertices: Vec<ChunkVertex>,
+    indices: Vec<u32>,
+}
+
+impl ChunkMesh {
+    #[inline]
+    pub fn vertices(&self) -> &Vec<ChunkVertex> {
+        &self.vertices
+    }
+
+    #[inline]
+    pub fn indices(&self) -> &Vec<u32> {
+        &self.indices
+    }
+}
+
+const CUBE_INDICES: [u32; 36] = [
+    0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5, 4, 5, 6, 6, 5, 7, 6, 7, 0, 0, 7, 1, 1, 7, 3, 3, 7, 5, 6, 0,
+    4, 4, 0, 2,
+];
+
+const CUBE_VERTEX_POSITIONS: [Vector3; 8] = [
+    Vector3::new(0.0, 0.0, 1.0),
+    Vector3::new(1.0, 0.0, 1.0),
+    Vector3::new(0.0, 1.0, 1.0),
+    Vector3::new(1.0, 1.0, 1.0),
+    Vector3::new(0.0, 1.0, 0.0),
+    Vector3::new(1.0, 1.0, 0.0),
+    Vector3::new(0.0, 0.0, 0.0),
+    Vector3::new(1.0, 0.0, 0.0),
+];

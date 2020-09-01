@@ -169,6 +169,7 @@ dependencies = [
  "rand",
  "sdl2",
  "wgpu",
+ "xml-rs",
 ]
 
 [[package]]
@@ -1149,3 +1150,9 @@ dependencies = [
  "libc",
  "pkg-config",
 ]
+
+[[package]]
+name = "xml-rs"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b07db065a5cf61a7e4ba64f29e67db906fb1787316516c4e6e5ff0fea1efcd8a"

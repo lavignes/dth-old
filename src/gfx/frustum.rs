@@ -39,6 +39,7 @@ impl Frustum {
         frustum
     }
 
+    #[inline]
     pub fn update_projection(&mut self, fov: f32, aspect_ratio: f32, near: f32, far: f32) {
         self.aspect_ratio = aspect_ratio;
         self.near = near;
@@ -49,6 +50,7 @@ impl Frustum {
         self.sphere_factor = (1.0 / fov_x.cos(), 1.0 / fov.cos()).into();
     }
 
+    #[inline]
     pub fn update_look_at(&mut self, position: Vector3, at: Vector3, up: Vector3) {
         self.position = position;
         self.z = (position - at).normalized();
@@ -56,7 +58,6 @@ impl Frustum {
         self.y = self.z * self.x;
     }
 
-    #[inline]
     pub fn point_inside(&self, position: Vector3) -> bool {
         // vector from "camera" to position
         let to_position = position - self.position;

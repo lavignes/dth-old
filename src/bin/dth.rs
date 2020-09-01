@@ -22,8 +22,10 @@ use wgpu::{
 
 use dth::{
     self,
+    gfx::ChunkMesh,
+    gfx::ChunkMesher,
+    gfx::ChunkVertex,
     gfx::Frustum,
-    gfx::{ChunkMesher, Mesh, Vertex},
     math::Quaternion,
     math::Vector3,
     math::{self, Matrix4, Vector2},
@@ -217,8 +219,10 @@ fn main() -> Result<(), BoxedError> {
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
     });
 
-    let basic_chunk_vs = create_shader_module(&device, "res/shaders/basic_chunk_wgpu.vert.spv")?;
-    let basic_chunk_fs = create_shader_module(&device, "res/shaders/basic_chunk_wgpu.frag.spv")?;
+    let basic_chunk_vs =
+        create_shader_module(&device, "res/shaders/basic_chunk_wgpu.vert.glsl.spv")?;
+    let basic_chunk_fs =
+        create_shader_module(&device, "res/shaders/basic_chunk_wgpu.frag.glsl.spv")?;
 
     let basic_chunk_primary_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -317,7 +321,7 @@ fn main() -> Result<(), BoxedError> {
         vertex_state: VertexStateDescriptor {
             index_format: IndexFormat::Uint32,
             vertex_buffers: &[VertexBufferDescriptor {
-                stride: mem::size_of::<Vertex>() as u64,
+                stride: mem::size_of::<ChunkVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float3],
             }],
@@ -337,7 +341,7 @@ fn main() -> Result<(), BoxedError> {
     for z in 0..64 {
         for x in 0..64 {
             let mut chunk = Chunk::randomized();
-            let mut mesh = Mesh::default();
+            let mut mesh = ChunkMesh::default();
             chunk.set_position((x as f32 * 16.0, 0.0, z as f32 * 16.0).into());
             mesher.greedy(&chunk, &mut mesh);
             mesh_vertex_buffers.push(device.create_buffer_init(&BufferInitDescriptor {
@@ -362,7 +366,7 @@ fn main() -> Result<(), BoxedError> {
     let update_rate = Duration::from_secs_f32(1.0 / 60.0);
 
     let mut mouse_pos = Vector2::default();
-    let mut camera_euler_angles = Vector2::new(4.0, 0.0);
+    let mut camera_euler_angles = Vector2::new(0.0, 0.0);
     let mut camera_position = Vector3::new(-16.0, 8.0, -16.0);
     // TODO: not synced with projection creation (maybe make a new struct of projection components)
     let mut frustum = Frustum::new(

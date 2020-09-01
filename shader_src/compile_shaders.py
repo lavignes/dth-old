@@ -24,5 +24,5 @@ def compile_shader(path: Path):
         os.utime(out_path, (os.path.getatime(out_path), modified_time))
 
 
-for shader in itertools.chain(cwd.glob('**/*.vert'), cwd.glob('**/*.frag')):
+for shader in itertools.chain(cwd.glob('**/*.glsl'), cwd.glob('**/*.glsl')):
     compile_shader(shader)
