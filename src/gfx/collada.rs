@@ -48,10 +48,12 @@ struct TriangleInput {
 
 /// A quick and dirty collada parser
 ///
+/// Long term this will be used to make a converter to a custom format.
+///
 /// # Limitations
 /// - Single geometry with single mesh
 #[derive(Debug, Default)]
-pub struct ColladaParser<R: Read> {
+pub struct ColladaReader<R: Read> {
     // Parser state data
     states: Vec<State>,
 
@@ -89,8 +91,8 @@ pub struct ColladaParser<R: Read> {
     phantom: PhantomData<R>,
 }
 
-impl<R: Read> ColladaParser<R> {
-    pub fn parse(&mut self, reader: &mut R, mesh: &mut AnimatedMesh) -> Result<(), BoxedError> {
+impl<R: Read> ColladaReader<R> {
+    pub fn read_into(&mut self, reader: &mut R, mesh: &mut AnimatedMesh) -> Result<(), BoxedError> {
         mesh.clear();
 
         self.states.clear();
@@ -425,30 +427,35 @@ impl<R: Read> ColladaParser<R> {
         Ok(())
     }
 
+    #[inline]
     fn push(&mut self, state: State) {
         self.states.push(state);
     }
 
+    #[inline]
     fn top(&self) -> Option<State> {
         self.states.last().copied()
     }
 
+    #[inline]
     fn pop(&mut self) -> Option<State> {
         self.states.pop()
     }
 
     fn find_attribute<'a>(
-        attributes: &'a Vec<OwnedAttribute>,
+        attributes: &'a [OwnedAttribute],
         name: &str,
     ) -> Option<&'a OwnedAttribute> {
         attributes.iter().find(|attr| attr.name.local_name == name)
     }
 
+    #[inline]
     fn set_latest_id(&mut self, value: &str) {
         self.latest_id.clear();
         self.latest_id.push_str(value);
     }
 
+    #[inline]
     fn trim_ref(value: &str) -> String {
         value[1..].to_owned()
     }
@@ -456,11 +463,11 @@ impl<R: Read> ColladaParser<R> {
 
 #[cfg(test)]
 mod test {
-    use crate::gfx::{AnimatedMesh, ColladaParser};
+    use crate::gfx::{AnimatedMesh, ColladaReader};
     use std::io::Cursor;
 
     #[test]
-    fn test() {
+    fn sanity_test() {
         let test = r##"
         <?xml version="1.0" encoding="utf-8"?>
 <COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -524,8 +531,10 @@ mod test {
         "##;
 
         let mut mesh = AnimatedMesh::default();
-        let mut parser = ColladaParser::default();
+        let mut parser = ColladaReader::default();
         let mut cursor = Cursor::new(test);
-        parser.parse(&mut cursor, &mut mesh);
+        parser
+            .read_into(&mut cursor, &mut mesh)
+            .expect("It should not fail to pase that!");
     }
 }

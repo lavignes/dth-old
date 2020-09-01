@@ -1,9 +1,11 @@
 mod matrix;
 mod quaternion;
+mod triangle;
 mod vector;
 
 pub use matrix::*;
 pub use quaternion::*;
+pub use triangle::*;
 pub use vector::*;
 
 use std::f32;

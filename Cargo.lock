@@ -168,6 +168,7 @@ dependencies = [
  "log",
  "rand",
  "sdl2",
+ "smallvec",
  "wgpu",
  "xml-rs",
 ]

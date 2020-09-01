@@ -5,9 +5,9 @@ use std::{
     hash::Hash,
 };
 
-pub trait Id: Hash + Eq + Debug + Default + Copy + Clone {
-    /// Generate a new Id using this Id as a seed.
-    /// Typically an Id is based on an integer and this
+pub trait PoolId: Hash + Eq + Debug + Default + Copy + Clone {
+    /// Generate a new id using this id as a seed.
+    /// Typically an id is based on an integer and this
     /// method will increment it.
     fn next(&self) -> Self;
 }
@@ -17,25 +17,62 @@ pub trait Id: Hash + Eq + Debug + Default + Copy + Clone {
 /// Rust hashmaps have a nice property that *they never implicitly shrink*.
 /// This means that they can be used as an efficient sparse data-store and memory pool.
 #[derive(Debug)]
-pub struct HashPool<I: Id, V> {
+pub struct HashPool<I, V>
+where
+    I: PoolId,
+    V: Default,
+{
     id: I,
     inner: XorHashMap<I, V>,
+    free_list: Vec<V>,
 }
 
-impl<I: Id, V> Default for HashPool<I, V> {
+impl<I, V> Default for HashPool<I, V>
+where
+    I: PoolId,
+    V: Default,
+{
     #[inline]
     fn default() -> HashPool<I, V> {
         HashPool {
             id: I::default(),
-            inner: XorHashMap::<I, V>::default(),
+            inner: XorHashMap::default(),
+            free_list: Vec::default(),
         }
     }
 }
 
-impl<I: Id, V> HashPool<I, V> {
+impl<I, V> HashPool<I, V>
+where
+    I: PoolId,
+    V: Default,
+{
     #[inline]
     pub fn new() -> HashPool<I, V> {
-        HashPool::<I, V>::default()
+        HashPool::default()
+    }
+
+    #[inline]
+    pub fn allocate(&mut self) -> (I, &V) {
+        if let Some(value) = self.free_list.pop() {
+            let id = self.register(value);
+            return (id, self.get(id).unwrap());
+        }
+        let id = self.register(V::default());
+        (id, self.get(id).unwrap())
+    }
+
+    #[inline]
+    pub fn create<F: FnMut(I, &mut V)>(&mut self, mut factory: F) {
+        let (id, _) = self.allocate();
+        factory(id, self.get_mut(id).unwrap())
+    }
+
+    #[inline]
+    pub fn delete(&mut self, id: &I) {
+        if let Some(value) = self.inner.remove(id) {
+            self.free_list.push(value);
+        }
     }
 
     #[inline]
@@ -46,13 +83,13 @@ impl<I: Id, V> HashPool<I, V> {
     }
 
     #[inline]
-    pub fn get(&self, id: &I) -> Option<&V> {
-        self.inner.get(id)
+    pub fn get(&self, id: I) -> Option<&V> {
+        self.inner.get(&id)
     }
 
     #[inline]
-    pub fn get_mut(&mut self, id: &I) -> Option<&mut V> {
-        self.inner.get_mut(id)
+    pub fn get_mut(&mut self, id: I) -> Option<&mut V> {
+        self.inner.get_mut(&id)
     }
 
     #[inline]

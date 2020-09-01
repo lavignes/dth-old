@@ -1,15 +1,63 @@
-use crate::math::Vector3;
+use crate::{
+    collections::PoolId,
+    math::{Vector2, Vector3},
+};
 
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+pub struct RenderMeshId(pub u64);
+
+impl PoolId for RenderMeshId {
+    #[inline]
+    fn next(&self) -> RenderMeshId {
+        RenderMeshId(self.0 + 1)
+    }
+}
+
+#[derive(Debug)]
+pub enum RenderMesh {
+    AnimatedMesh(AnimatedMesh),
+    Todo,
+}
+
+impl Default for RenderMesh {
+    #[inline]
+    fn default() -> RenderMesh {
+        RenderMesh::Todo
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct AnimatedVertex {
     position: Vector3,
     normal: Vector3,
+    tex_coords: Vector2,
+    bone_indices: Vector2,
+    bone_weights: Vector2,
 }
+
+unsafe impl bytemuck::Zeroable for AnimatedVertex {}
+
+unsafe impl bytemuck::Pod for AnimatedVertex {}
 
 impl AnimatedVertex {
     #[inline]
     pub fn new(position: Vector3, normal: Vector3) -> AnimatedVertex {
-        AnimatedVertex { position, normal }
+        AnimatedVertex {
+            position,
+            normal,
+            ..AnimatedVertex::default()
+        }
+    }
+
+    #[inline]
+    pub fn position(&self) -> Vector3 {
+        self.position
+    }
+
+    #[inline]
+    pub fn normal(&self) -> Vector3 {
+        self.normal
     }
 }
 
