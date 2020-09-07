@@ -1,4 +1,7 @@
-use crate::math::{Vector2, Vector3};
+use crate::{
+    gfx::PerspectiveProjection,
+    math::{Vector2, Vector3},
+};
 
 // This is based on the neat radar frustum culling approach on lighthouse3d
 // http://www.lighthouse3d.com/tutorials/view-frustum-culling/
@@ -25,32 +28,27 @@ pub struct Frustum {
 impl Frustum {
     #[inline]
     pub fn new(
-        fov: f32,
-        aspect_ratio: f32,
-        near: f32,
-        far: f32,
+        projection: &PerspectiveProjection,
         position: Vector3,
         at: Vector3,
         up: Vector3,
     ) -> Frustum {
         let mut frustum = Frustum::default();
-        frustum.update_projection(fov, aspect_ratio, near, far);
+        frustum.update_projection(projection);
         frustum.update_look_at(position, at, up);
         frustum
     }
 
-    #[inline]
-    pub fn update_projection(&mut self, fov: f32, aspect_ratio: f32, near: f32, far: f32) {
-        self.aspect_ratio = aspect_ratio;
-        self.near = near;
-        self.far = far;
-        self.tan_fov = fov.tan();
+    pub fn update_projection(&mut self, projection: &PerspectiveProjection) {
+        self.aspect_ratio = projection.aspect_ratio;
+        self.near = projection.near;
+        self.far = projection.far;
+        self.tan_fov = projection.fov.tan();
 
-        let fov_x = (self.tan_fov * aspect_ratio).atan();
-        self.sphere_factor = (1.0 / fov_x.cos(), 1.0 / fov.cos()).into();
+        let fov_x = (self.tan_fov * projection.aspect_ratio).atan();
+        self.sphere_factor = (1.0 / fov_x.cos(), 1.0 / projection.fov.cos()).into();
     }
 
-    #[inline]
     pub fn update_look_at(&mut self, position: Vector3, at: Vector3, up: Vector3) {
         self.position = position;
         self.z = (position - at).normalized();

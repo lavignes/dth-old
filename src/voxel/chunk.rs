@@ -1,4 +1,8 @@
-use crate::{collections::CubeMap16, math::Vector3, tile::TileId, tile::TileState};
+use crate::{
+    collections::CubeMap16,
+    math::Vector3,
+    tile::{TileId, TileState},
+};
 use std::iter::FromIterator;
 
 use rand::{self, Rng};

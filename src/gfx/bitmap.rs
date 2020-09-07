@@ -1,55 +1,119 @@
 use std::{
     io::{self, ErrorKind, Read, Seek, SeekFrom},
-    mem, u16, u32,
+    mem, str, u16, u32,
 };
 
-use crate::collections::PoolObject;
-use crate::{collections::PoolId, math::Vector2, util};
+use crate::{
+    collections::{PoolId, PoolObject},
+    math::{Float16, Vector2},
+    util,
+    util::BoxedError,
+};
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
-pub struct BitmapId(pub u64);
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum BitmapFormat {
+    BgraU8,
+    DXT3,
+    DXT5,
+}
 
-impl PoolId for BitmapId {
-    fn next(&self) -> BitmapId {
-        BitmapId(self.0 + 1)
+impl BitmapFormat {}
+
+impl Default for BitmapFormat {
+    #[inline]
+    fn default() -> BitmapFormat {
+        BitmapFormat::BgraU8
     }
 }
 
 #[derive(Debug, Default)]
-pub struct Bitmap {
-    data: Vec<u32>,
+struct MipLevel {
+    start: usize,
+    end: usize,
     size: Vector2,
     bytes_per_row: usize,
 }
 
+#[derive(Debug, Default)]
+pub struct Bitmap {
+    format: BitmapFormat,
+    data: Vec<u8>,
+    mip_levels: Vec<MipLevel>,
+}
+
 impl Bitmap {
-    #[inline]
     pub fn clear(&mut self) {
         self.data.clear();
-        self.size = Vector2::default();
-        self.bytes_per_row = 0;
+        self.mip_levels.clear();
+        self.format = BitmapFormat::default();
     }
 
     #[inline]
-    pub fn data(&self) -> &[u32] {
-        &self.data
+    pub fn mip_levels(&self) -> usize {
+        self.mip_levels.len()
+    }
+
+    #[inline]
+    pub fn data(&self) -> &[u8] {
+        self.mip_data(0)
+    }
+
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        self.mip_data_mut(0)
+    }
+
+    #[inline]
+    pub fn mip_data(&self, mip_level: usize) -> &[u8] {
+        let mip_level = &self.mip_levels[mip_level];
+        &self.data[mip_level.start..mip_level.end]
+    }
+
+    #[inline]
+    pub fn mip_data_mut(&mut self, mip_level: usize) -> &mut [u8] {
+        let mip_level = &self.mip_levels[mip_level];
+        &mut self.data[mip_level.start..mip_level.end]
     }
 
     #[inline]
     pub fn size(&self) -> Vector2 {
-        self.size
+        self.mip_size(0)
+    }
+
+    #[inline]
+    pub fn mip_size(&self, mip_level: usize) -> Vector2 {
+        self.mip_levels[mip_level].size
     }
 
     #[inline]
     pub fn bytes_per_row(&self) -> usize {
-        self.bytes_per_row
+        self.mip_bytes_per_row(0)
+    }
+
+    #[inline]
+    pub fn mip_bytes_per_row(&self, mip_level: usize) -> usize {
+        self.mip_levels[mip_level].bytes_per_row
+    }
+
+    #[inline]
+    pub fn format(&self) -> BitmapFormat {
+        self.format
     }
 }
 
-impl PoolObject for Bitmap {
-    #[inline]
-    fn clear(&mut self) {
-        self.clear()
+bitflags::bitflags! {
+    struct PixelFormatFlags: u32 {
+        const ALPHA_PIXELS = 0x00000001;
+        const FOUR_CHARACTER_CODE = 0x00000004;
+        const RGB = 0x00000040;
+    }
+}
+
+bitflags::bitflags! {
+    struct CapabilityFlags: u32 {
+        const COMPLEX = 0x00000008;
+        const TEXTURE = 0x00001000;
+        const MIPMAP = 0x00400000;
     }
 }
 
@@ -57,57 +121,133 @@ impl PoolObject for Bitmap {
 pub struct BitmapReader {}
 
 impl BitmapReader {
-    /// Read a 32-bit Microsoft Bitmap file
-    pub fn read_into<R: Read + Seek>(reader: &mut R, bitmap: &mut Bitmap) -> io::Result<()> {
-        reader.seek(SeekFrom::Start(0))?;
+    pub fn read_into<R: Read + Seek>(
+        &mut self,
+        reader: &mut R,
+        bitmap: &mut Bitmap,
+    ) -> io::Result<()> {
+        reader.seek(SeekFrom::Start(0x00))?;
 
-        let expected_magic = u16::from_le_bytes([b'B', b'M']);
-        let magic = util::read_u16(reader)?;
+        let expected_magic = u32::from_le_bytes([b'D', b'D', b'S', b' ']);
+        let magic = util::read_u32(reader)?;
         if magic != expected_magic {
             return util::io_err(
                 ErrorKind::InvalidData,
                 format!(
-                    "Expected a 'BM' ({:02X}) instead found {:02X}",
+                    "Expected a 'DDS ' ({:04X}) instead found {:04X}",
                     expected_magic, magic
                 ),
             );
         }
 
-        reader.seek(SeekFrom::Start(0x0A))?;
-        let offset = util::read_u32(reader)?;
+        reader.seek(SeekFrom::Start(0x0C))?;
+        let height = util::read_u32(reader)?;
+        let width = util::read_u32(reader)?;
+        let pitch = util::read_u32(reader)?;
+        reader.seek(SeekFrom::Current(0x04))?;
+        let mip_levels = util::read_u32(reader)?;
 
-        reader.seek(SeekFrom::Start(0x12))?;
-        let width = util::read_u32(reader)? as usize;
-        let height = util::read_u32(reader)? as usize;
-
-        reader.seek(SeekFrom::Start(0x1C))?;
-        let color_depth = util::read_u16(reader)?;
-        if color_depth != 32 {
-            return util::io_err(
-                ErrorKind::InvalidData,
+        reader.seek(SeekFrom::Start(0x50))?;
+        let format_flags_bytes = util::read_u32(reader)?;
+        let format_flags = util::io_err_option(
+            PixelFormatFlags::from_bits(format_flags_bytes),
+            ErrorKind::InvalidData,
+            || {
                 format!(
-                    "Expected a bitmap with a 32 BPP color-depth found {} BPP instead",
-                    color_depth
-                ),
-            );
-        }
+                    "Unsupported DDS pixel format ({:04X}). The file is probably malformed",
+                    format_flags_bytes
+                )
+            },
+        )?;
+        let four_character_code_bytes = util::read_u32(reader)?.to_le_bytes();
+        let four_character_code = util::io_err_result(
+            str::from_utf8(&four_character_code_bytes),
+            ErrorKind::InvalidData,
+        )?;
+        let rgb_bit_counts = util::read_u32(reader)?;
+        let _r_bit_mask = util::read_u32(reader)?.to_le_bytes();
+        let _g_bit_mask = util::read_u32(reader)?.to_le_bytes();
+        let _b_bit_mask = util::read_u32(reader)?.to_le_bytes();
+        let _a_bit_mask = util::read_u32(reader)?.to_le_bytes();
+        let capabilities_bytes = util::read_u32(reader)?;
+        util::io_err_option(
+            CapabilityFlags::from_bits(capabilities_bytes),
+            ErrorKind::InvalidData,
+            || {
+                format!(
+                    "Unsupported DDS capabilities ({:04X}). The file is probably malformed",
+                    capabilities_bytes
+                )
+            },
+        )?;
 
-        let compression = util::read_u32(reader)?;
-        // BI_RGB (0) or BI_BITFIELDS (3) are supported
-        if compression != 0 && compression != 3 {
+        // Jump to pixel data (it is further down on FourCharacterCode == "DX11" but we dont do it)
+        reader.seek(SeekFrom::Start(0x70))?;
+        if format_flags.contains(PixelFormatFlags::FOUR_CHARACTER_CODE) {
+            match four_character_code {
+                "DXT3" => {
+                    bitmap.format = BitmapFormat::DXT3;
+                }
+                "DXT5" => {
+                    bitmap.format = BitmapFormat::DXT5;
+                }
+                _ => {
+                    return util::io_err(
+                        ErrorKind::InvalidData,
+                        format!("Unsupported compression format: {}", four_character_code),
+                    );
+                }
+            }
+            let mut offset = 0;
+            for mip_level in 0..mip_levels {
+                let mip_width = (width >> mip_level) as usize;
+                let mip_height = (height >> mip_level) as usize;
+                // Note: The constant 16 is for DXT2-5. It would be 8 for DXT1
+                let block_size = 16;
+                let mip_pitch = ((mip_width + 3) / 4).max(1) * block_size;
+                // This *should* also be the same as pitch at mip_level==0
+                let linear_size = mip_pitch * ((mip_height + 3) / 4).max(1);
+                bitmap.data.reserve(linear_size);
+                for _ in 0..linear_size {
+                    bitmap.data.push(util::read_u8(reader)?);
+                }
+                bitmap.mip_levels.push(MipLevel {
+                    start: offset,
+                    end: offset + linear_size,
+                    size: (mip_width as f32, mip_height as f32).into(),
+                    bytes_per_row: mip_pitch,
+                });
+                offset += linear_size;
+            }
+        } else if format_flags.contains(PixelFormatFlags::RGB) {
+            if rgb_bit_counts != 32 || !format_flags.contains(PixelFormatFlags::ALPHA_PIXELS) {
+                return util::io_err(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "Non 32-bit pixel formats are not supported. Image pixels are {}-bit",
+                        rgb_bit_counts
+                    ),
+                );
+            }
+
+            bitmap.format = BitmapFormat::BgraU8;
+            let linear_size = height * pitch;
+            bitmap.data.reserve(linear_size as usize);
+            for _ in 0..(width * height) {
+                bitmap.data.extend(&util::read_u32(reader)?.to_le_bytes());
+            }
+            bitmap.mip_levels.push(MipLevel {
+                start: 0,
+                end: linear_size as usize,
+                size: (width as f32, height as f32).into(),
+                bytes_per_row: pitch as usize,
+            });
+        } else {
             return util::io_err(
                 ErrorKind::InvalidData,
-                "Compressed bitmaps are not supported",
+                format!("Unsupported DDS pixel format {:04X}", format_flags_bytes),
             );
         }
-
-        reader.seek(SeekFrom::Start(offset as u64))?;
-        bitmap.clear();
-        for _ in 0..(width * height) {
-            bitmap.data.push(util::read_u32(reader)?);
-        }
-        bitmap.size = (width as f32, height as f32).into();
-        bitmap.bytes_per_row = mem::size_of::<u32>() * width;
 
         Ok(())
     }

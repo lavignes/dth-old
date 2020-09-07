@@ -1,5 +1,7 @@
-use crate::collections::{PaletteVec, PaletteVecIterator};
-use crate::math::Vector3;
+use crate::{
+    collections::{PaletteVec, PaletteVecIterator},
+    math::Vector3,
+};
 use std::{fmt::Debug, hash::Hash, iter::FromIterator};
 
 /// A cube-map of length 16

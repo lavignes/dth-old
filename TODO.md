@@ -1,0 +1,1 @@
+* Get rid of the scene graph. Create an open world made up of cells with dynamic LOD

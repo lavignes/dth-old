@@ -1,5 +1,6 @@
 use crate::math::{Quaternion, Vector3, Vector4};
 
+use crate::gfx::PerspectiveProjection;
 use std::ops::{Index, IndexMut, Mul};
 
 #[repr(C)]
@@ -82,14 +83,19 @@ impl Matrix4 {
     }
 
     #[inline]
-    pub fn perspective(fov: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4 {
-        let depth = near - far;
-        let tan_fov = (fov / 2.0).tan();
+    pub fn perspective(projection: &PerspectiveProjection) -> Matrix4 {
+        let depth = projection.near - projection.far;
+        let tan_fov = (projection.fov / 2.0).tan();
         Matrix4([
-            Vector4([1.0 / (tan_fov * aspect_ratio), 0.0, 0.0, 0.0]),
+            Vector4([1.0 / (tan_fov * projection.aspect_ratio), 0.0, 0.0, 0.0]),
             Vector4([0.0, 1.0 / tan_fov, 0.0, 0.0]),
-            Vector4([0.0, 0.0, (near + far) / depth, -1.0]),
-            Vector4([0.0, 0.0, (2.0 * far * near) / depth, 0.0]),
+            Vector4([0.0, 0.0, (projection.near + projection.far) / depth, -1.0]),
+            Vector4([
+                0.0,
+                0.0,
+                (2.0 * projection.far * projection.near) / depth,
+                0.0,
+            ]),
         ])
     }
 
@@ -139,9 +145,67 @@ impl Matrix4 {
         ])
     }
 
+    #[rustfmt::skip]
+    pub fn inversed(&self) -> Matrix4 {
+        let a2323 = self.0[2].0[2] * self.0[3].0[3] - self.0[2].0[3] * self.0[3].0[2];
+        let a1323 = self.0[2].0[1] * self.0[3].0[3] - self.0[2].0[3] * self.0[3].0[1];
+        let a1223 = self.0[2].0[1] * self.0[3].0[2] - self.0[2].0[2] * self.0[3].0[1];
+        let a0323 = self.0[2].0[0] * self.0[3].0[3] - self.0[2].0[3] * self.0[3].0[0];
+        let a0223 = self.0[2].0[0] * self.0[3].0[2] - self.0[2].0[2] * self.0[3].0[0];
+        let a0123 = self.0[2].0[0] * self.0[3].0[1] - self.0[2].0[1] * self.0[3].0[0];
+        let a2313 = self.0[1].0[2] * self.0[3].0[3] - self.0[1].0[3] * self.0[3].0[2];
+        let a1313 = self.0[1].0[1] * self.0[3].0[3] - self.0[1].0[3] * self.0[3].0[1];
+        let a1213 = self.0[1].0[1] * self.0[3].0[2] - self.0[1].0[2] * self.0[3].0[1];
+        let a2312 = self.0[1].0[2] * self.0[2].0[3] - self.0[1].0[3] * self.0[2].0[2];
+        let a1312 = self.0[1].0[1] * self.0[2].0[3] - self.0[1].0[3] * self.0[2].0[1];
+        let a1212 = self.0[1].0[1] * self.0[2].0[2] - self.0[1].0[2] * self.0[2].0[1];
+        let a0313 = self.0[1].0[0] * self.0[3].0[3] - self.0[1].0[3] * self.0[3].0[0];
+        let a0213 = self.0[1].0[0] * self.0[3].0[2] - self.0[1].0[2] * self.0[3].0[0];
+        let a0312 = self.0[1].0[0] * self.0[2].0[3] - self.0[1].0[3] * self.0[2].0[0];
+        let a0212 = self.0[1].0[0] * self.0[2].0[2] - self.0[1].0[2] * self.0[2].0[0];
+        let a0113 = self.0[1].0[0] * self.0[3].0[1] - self.0[1].0[1] * self.0[3].0[0];
+        let a0112 = self.0[1].0[0] * self.0[2].0[1] - self.0[1].0[1] * self.0[2].0[0];
+
+        let det = 1.0 /
+            (self.0[0].0[0] * ( self.0[1].0[1] * a2323 - self.0[1].0[2] * a1323 + self.0[1].0[3] * a1223)
+            - self.0[0].0[1] * ( self.0[1].0[0] * a2323 - self.0[1].0[2] * a0323 + self.0[1].0[3] * a0223)
+            + self.0[0].0[2] * ( self.0[1].0[0] * a1323 - self.0[1].0[1] * a0323 + self.0[1].0[3] * a0123)
+            - self.0[0].0[3] * ( self.0[1].0[0] * a1223 - self.0[1].0[1] * a0223 + self.0[1].0[2] * a0123));
+
+        Matrix4([
+            Vector4([
+                det * (self.0[1].0[1] * a2323 - self.0[1].0[2] * a1323 + self.0[1].0[3] * a1223),
+                det * -(self.0[0].0[1] * a2323 - self.0[0].0[2] * a1323 + self.0[0].0[3] * a1223),
+                det * (self.0[0].0[1] * a2313 - self.0[0].0[2] * a1313 + self.0[0].0[3] * a1213),
+                det * -(self.0[0].0[1] * a2312 - self.0[0].0[2] * a1312 + self.0[0].0[3] * a1212),
+            ]),
+
+            Vector4([
+                det * -(self.0[1].0[0] * a2323 - self.0[1].0[2] * a0323 + self.0[1].0[3] * a0223),
+                det * (self.0[0].0[0] * a2323 - self.0[0].0[2] * a0323 + self.0[0].0[3] * a0223),
+                det * -(self.0[0].0[0] * a2313 - self.0[0].0[2] * a0313 + self.0[0].0[3] * a0213),
+                det * (self.0[0].0[0] * a2312 - self.0[0].0[2] * a0312 + self.0[0].0[3] * a0212),
+            ]),
+
+            Vector4([
+                det * (self.0[1].0[0] * a1323 - self.0[1].0[1] * a0323 + self.0[1].0[3] * a0123),
+                det * -(self.0[0].0[0] * a1323 - self.0[0].0[1] * a0323 + self.0[0].0[3] * a0123),
+                det * (self.0[0].0[0] * a1313 - self.0[0].0[1] * a0313 + self.0[0].0[3] * a0113),
+                det * -(self.0[0].0[0] * a1312 - self.0[0].0[1] * a0312 + self.0[0].0[3] * a0112),
+            ]),
+
+            Vector4([
+                det * -(self.0[1].0[0] * a1223 - self.0[1].0[1] * a0223 + self.0[1].0[2] * a0123),
+                det * (self.0[0].0[0] * a1223 - self.0[0].0[1] * a0223 + self.0[0].0[2] * a0123),
+                det * -(self.0[0].0[0] * a1213 - self.0[0].0[1] * a0213 + self.0[0].0[2] * a0113),
+                det * (self.0[0].0[0] * a1212 - self.0[0].0[1] * a0212 + self.0[0].0[2] * a0112),
+            ])
+        ])
+    }
+
     #[inline]
     #[rustfmt::skip]
-    pub fn transpose(&self) -> Matrix4 {
+    pub fn transposed(&self) -> Matrix4 {
         Matrix4([
             Vector4([self.0[0].0[0], self.0[1].0[0], self.0[2].0[0], self.0[3].0[0]]),
             Vector4([self.0[0].0[1], self.0[1].0[1], self.0[2].0[1], self.0[3].0[1]]),

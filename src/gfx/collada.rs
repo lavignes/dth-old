@@ -1,10 +1,12 @@
 use crate::{
     collections::XorHashMap,
-    gfx::{AnimatedMesh, AnimatedVertex},
+    gfx::{StaticMaterialMesh, StaticMaterialVertex},
     math::{Vector2, Vector3},
-    util::{self, BoxedError},
+    util::{self},
 };
-use std::{io::Read, marker::PhantomData};
+use std::io;
+use std::io::ErrorKind;
+use std::io::Read;
 use xml::{attribute::OwnedAttribute, reader::XmlEvent, EventReader, ParserConfig};
 
 #[derive(Debug, Copy, Clone)]
@@ -53,7 +55,7 @@ struct TriangleInput {
 /// # Limitations
 /// - Single geometry with single mesh
 #[derive(Debug, Default)]
-pub struct ColladaReader<R: Read> {
+pub struct ColladaReader {
     // Parser state data
     states: Vec<State>,
 
@@ -82,17 +84,14 @@ pub struct ColladaReader<R: Read> {
 
     // Buffer for store tex coords
     tex_coords: Vec<Vector2>,
-
-    // TODO: I wanted to re-use the xml reader to reduce new allocations,
-    //   but xml-rs does not support this. For now we'll pretend it
-    //   does in the API. In the future we'd store the reader here...
-    //   In fact we've gone crazy with allocations. Would be nice to reduce them...
-    //   Long term. Make this into a tool that converts collada to a custom binary format.
-    phantom: PhantomData<R>,
 }
 
-impl<R: Read> ColladaReader<R> {
-    pub fn read_into(&mut self, reader: &mut R, mesh: &mut AnimatedMesh) -> Result<(), BoxedError> {
+impl ColladaReader {
+    pub fn read_into<R: Read>(
+        &mut self,
+        reader: &mut R,
+        mesh: &mut StaticMaterialMesh,
+    ) -> io::Result<()> {
         mesh.clear();
 
         self.states.clear();
@@ -117,16 +116,26 @@ impl<R: Read> ColladaReader<R> {
         );
 
         // The ol' shifty-reduce-y
+        // TODO: Can probably replace all EndDocument events with a single pop
         loop {
-            let state = self.top().ok_or("Parser in invalid state")?;
-            let event = xml_reader.next()?;
+            let state =
+                util::io_err_option(self.top(), ErrorKind::Other, || "Parser in invalid state")?;
+            let event = util::io_err_result(xml_reader.next(), ErrorKind::Other)?;
+
+            match event {
+                XmlEvent::EndElement { .. } => {
+                    self.pop();
+                    continue;
+                }
+                XmlEvent::EndDocument { .. } => break,
+                _ => (),
+            }
 
             match state {
                 State::Init => match event {
                     XmlEvent::StartDocument { .. } => {
                         self.push(State::ColladaTag);
                     }
-                    XmlEvent::EndDocument { .. } => {}
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -136,9 +145,6 @@ impl<R: Read> ColladaReader<R> {
                     XmlEvent::StartElement { .. } => {
                         self.push(State::UnimplementedTagLevel);
                     }
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     XmlEvent::Characters(_) => {}
                     _ => unimplemented!("{:?}", event),
                 },
@@ -146,14 +152,13 @@ impl<R: Read> ColladaReader<R> {
                 State::ColladaTag => match event {
                     XmlEvent::StartElement { name, .. } => {
                         if name.local_name != "COLLADA" {
-                            return util::boxed_err("First tag is supposed to be COLLADA");
+                            return util::io_err(
+                                ErrorKind::InvalidData,
+                                "First tag is supposed to be COLLADA",
+                            );
                         }
                         self.push(State::Libraries);
                     }
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
-                    XmlEvent::EndDocument { .. } => break, // End of doc!
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -166,9 +171,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -181,9 +183,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -196,9 +195,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -207,15 +203,21 @@ impl<R: Read> ColladaReader<R> {
                         name, attributes, ..
                     } => match name.local_name.as_str() {
                         "source" => {
-                            let id = Self::find_attribute(&attributes, "id")
-                                .ok_or("Mesh sources must have ids")?;
+                            let id = util::io_err_option(
+                                Self::find_attribute(&attributes, "id"),
+                                ErrorKind::InvalidData,
+                                || "Mesh sources must have ids",
+                            )?;
                             self.set_latest_id(&id.value);
                             self.sources.insert(id.value.clone(), Source::default());
                             self.push(State::SourceChild);
                         }
                         "vertices" => {
-                            let id = Self::find_attribute(&attributes, "id")
-                                .ok_or("Mesh vertices must have ids")?;
+                            let id = util::io_err_option(
+                                Self::find_attribute(&attributes, "id"),
+                                ErrorKind::InvalidData,
+                                || "Mesh vertices must have ids",
+                            )?;
                             self.set_latest_id(&id.value);
                             self.push(State::VerticesChild);
                         }
@@ -224,9 +226,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -239,26 +238,21 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
                 State::SourceFloatArrayText => match event {
                     XmlEvent::Characters(text) => {
-                        let source = self
-                            .sources
-                            .get_mut(&self.latest_id)
-                            .ok_or("Parser is in invalid state")?;
+                        let source = util::io_err_option(
+                            self.sources.get_mut(&self.latest_id),
+                            ErrorKind::Other,
+                            || "Parser in invalid state",
+                        )?;
                         let mut floats = Vec::new();
                         for float in text.split_whitespace() {
                             floats.push(util::parse(float)?);
                         }
                         source.kind = Some(SourceKind::FloatArray(floats));
-                    }
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
                     }
                     _ => unimplemented!("{:?}", event),
                 },
@@ -268,8 +262,11 @@ impl<R: Read> ColladaReader<R> {
                         name, attributes, ..
                     } => match name.local_name.as_str() {
                         "input" => {
-                            let source = Self::find_attribute(&attributes, "source")
-                                .ok_or("Vertex inputs must have a source")?;
+                            let source = util::io_err_option(
+                                Self::find_attribute(&attributes, "source"),
+                                ErrorKind::InvalidData,
+                                || "Vertex inputs must have a source",
+                            )?;
                             // Trim off the # since this is a ref link and save it
                             self.vertices_mapping
                                 .insert(self.latest_id.clone(), Self::trim_ref(&source.value));
@@ -280,9 +277,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -291,14 +285,23 @@ impl<R: Read> ColladaReader<R> {
                         name, attributes, ..
                     } => match name.local_name.as_str() {
                         "input" => {
-                            let semantic = Self::find_attribute(&attributes, "semantic")
-                                .ok_or("Triangles inputs must have a semantic")?;
-                            let source = Self::find_attribute(&attributes, "source")
-                                .ok_or("Triangles inputs must have a source")?;
+                            let semantic = util::io_err_option(
+                                Self::find_attribute(&attributes, "semantic"),
+                                ErrorKind::InvalidData,
+                                || "Triangles inputs must have a semantic",
+                            )?;
+                            let source = util::io_err_option(
+                                Self::find_attribute(&attributes, "source"),
+                                ErrorKind::InvalidData,
+                                || "Triangles inputs must have a source",
+                            )?;
                             let offset = util::parse(
-                                &Self::find_attribute(&attributes, "offset")
-                                    .ok_or("Triangles inputs must have a offset")?
-                                    .value,
+                                &util::io_err_option(
+                                    Self::find_attribute(&attributes, "offset"),
+                                    ErrorKind::InvalidData,
+                                    || "Triangles inputs must have a offset",
+                                )?
+                                .value,
                             )?;
 
                             // Just quickly check if the source is referring to something in
@@ -337,9 +340,6 @@ impl<R: Read> ColladaReader<R> {
                             self.push(State::UnimplementedTagLevel);
                         }
                     },
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
 
@@ -354,10 +354,11 @@ impl<R: Read> ColladaReader<R> {
                         // This is not optimal since we are re-iterating for every input type.
                         // But its fine for now.
                         for (id, input) in &self.triangle_inputs {
-                            let source = self
-                                .sources
-                                .get(id)
-                                .ok_or("Input source no longer exists")?;
+                            let source = util::io_err_option(
+                                self.sources.get(id),
+                                ErrorKind::Other,
+                                || "Input source no longer exists",
+                            )?;
                             let offset = input.offset;
                             // funky iterator...
                             for &index in self
@@ -369,11 +370,12 @@ impl<R: Read> ColladaReader<R> {
                                 match &input.kind {
                                     TriangleInputKind::Vertex => match &source.kind {
                                         Some(SourceKind::FloatArray(positions)) => {
+                                            let offset = index * 3;
                                             self.positions.push(
                                                 (
-                                                    positions[index],
-                                                    positions[index + 1],
-                                                    positions[index + 2],
+                                                    positions[offset],
+                                                    positions[offset + 1],
+                                                    positions[offset + 2],
                                                 )
                                                     .into(),
                                             );
@@ -382,11 +384,12 @@ impl<R: Read> ColladaReader<R> {
                                     },
                                     TriangleInputKind::Normal => match &source.kind {
                                         Some(SourceKind::FloatArray(normals)) => {
+                                            let offset = index * 3;
                                             self.normals.push(
                                                 (
-                                                    normals[index],
-                                                    normals[index + 1],
-                                                    normals[index + 2],
+                                                    normals[offset],
+                                                    normals[offset + 1],
+                                                    normals[offset + 2],
                                                 )
                                                     .into(),
                                             );
@@ -395,8 +398,9 @@ impl<R: Read> ColladaReader<R> {
                                     },
                                     TriangleInputKind::TexCoord => match &source.kind {
                                         Some(SourceKind::FloatArray(tex_coords)) => {
+                                            let offset = index * 2;
                                             self.tex_coords.push(
-                                                (tex_coords[index], tex_coords[index + 1]).into(),
+                                                (tex_coords[offset], tex_coords[offset + 1]).into(),
                                             );
                                         }
                                         k => unimplemented!("{:?}", k),
@@ -405,23 +409,20 @@ impl<R: Read> ColladaReader<R> {
                             }
                         }
                     }
-                    XmlEvent::EndElement { .. } => {
-                        self.pop();
-                    }
                     _ => unimplemented!("{:?}", event),
                 },
             }
         }
 
         // TODO: Compress like indices
-        for (i, ((&position, &normal), _)) in self
+        for (i, ((&position, &normal), &tex_coord)) in self
             .positions
             .iter()
             .zip(self.normals.iter())
             .zip(self.tex_coords.iter())
             .enumerate()
         {
-            mesh.add_vertex(AnimatedVertex::new(position, normal));
+            mesh.add_vertex(StaticMaterialVertex::new(position, normal, tex_coord));
             mesh.add_index(i as u32);
         }
         Ok(())
@@ -463,13 +464,13 @@ impl<R: Read> ColladaReader<R> {
 
 #[cfg(test)]
 mod test {
-    use crate::gfx::{AnimatedMesh, ColladaReader};
+    use crate::gfx::{ColladaReader, StaticMaterialMesh};
     use std::io::Cursor;
 
     #[test]
     fn sanity_test() {
         let test = r##"
-        <?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <asset>
     <contributor>
@@ -530,11 +531,11 @@ mod test {
 </COLLADA>
         "##;
 
-        let mut mesh = AnimatedMesh::default();
+        let mut mesh = StaticMaterialMesh::default();
         let mut parser = ColladaReader::default();
         let mut cursor = Cursor::new(test);
         parser
             .read_into(&mut cursor, &mut mesh)
-            .expect("It should not fail to pase that!");
+            .expect("It should not fail to parse that!");
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     math::Vector3,
     tile::{TileFace, TileState},
-    world::Chunk,
+    voxel::Chunk,
 };
 use std::time::Instant;
 

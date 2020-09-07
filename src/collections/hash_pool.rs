@@ -1,6 +1,6 @@
 use crate::collections::XorHashMap;
-use std::cell::RefCell;
 use std::{
+    cell::RefCell,
     collections::hash_map::{Iter, IterMut},
     fmt::Debug,
     hash::Hash,
@@ -39,6 +39,13 @@ where
     #[inline]
     fn clear(&mut self) {
         self.borrow_mut().clear()
+    }
+}
+
+impl PoolObject for u32 {
+    #[inline]
+    fn clear(&mut self) {
+        *self = 0;
     }
 }
 
@@ -138,5 +145,15 @@ where
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, I, V> {
         self.inner.iter_mut()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }

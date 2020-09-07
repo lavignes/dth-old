@@ -162,13 +162,13 @@ dependencies = [
 name = "dth"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "bytemuck",
  "env_logger",
  "futures",
  "log",
  "rand",
  "sdl2",
- "smallvec",
  "wgpu",
  "xml-rs",
 ]

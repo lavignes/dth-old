@@ -1,13 +1,17 @@
 mod bitmap;
-mod chunk_mesher;
 mod collada;
 mod frustum;
 mod mesh;
-mod scene;
 
 pub use bitmap::*;
-pub use chunk_mesher::*;
 pub use collada::*;
 pub use frustum::*;
 pub use mesh::*;
-pub use scene::*;
+
+#[derive(Default, Debug)]
+pub struct PerspectiveProjection {
+    pub fov: f32,
+    pub aspect_ratio: f32,
+    pub near: f32,
+    pub far: f32,
+}

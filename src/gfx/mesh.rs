@@ -1,84 +1,43 @@
-use crate::collections::PoolObject;
-use crate::{
-    collections::PoolId,
-    math::{Vector2, Vector3},
-};
+use crate::math::{Vector2, Vector3};
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
-pub struct RenderMeshId(pub u64);
-
-impl PoolId for RenderMeshId {
-    #[inline]
-    fn next(&self) -> RenderMeshId {
-        RenderMeshId(self.0 + 1)
-    }
-}
-
-#[derive(Debug)]
-pub enum RenderMesh {
-    AnimatedMesh(AnimatedMesh),
-    Todo,
-}
-
-impl PoolObject for RenderMesh {
-    #[inline]
-    fn clear(&mut self) {
-        match self {
-            RenderMesh::AnimatedMesh(mesh) => mesh.clear(),
-            _ => todo!("{:?}", self),
-        }
-    }
-}
-
-impl Default for RenderMesh {
-    #[inline]
-    fn default() -> RenderMesh {
-        RenderMesh::Todo
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default, Debug)]
-pub struct AnimatedVertex {
-    position: Vector3,
-    normal: Vector3,
-    tex_coords: Vector2,
-    bone_indices: Vector2,
-    bone_weights: Vector2,
-}
-
-unsafe impl bytemuck::Zeroable for AnimatedVertex {}
-
-unsafe impl bytemuck::Pod for AnimatedVertex {}
-
-impl AnimatedVertex {
-    #[inline]
-    pub fn new(position: Vector3, normal: Vector3) -> AnimatedVertex {
-        AnimatedVertex {
-            position,
-            normal,
-            ..AnimatedVertex::default()
-        }
-    }
-
-    #[inline]
-    pub fn position(&self) -> Vector3 {
-        self.position
-    }
-
-    #[inline]
-    pub fn normal(&self) -> Vector3 {
-        self.normal
-    }
-}
+// TODO: Animated mesh?
+// #[derive(Debug, Default)]
+// pub struct AnimatedMaterialMesh {
+//     inner: StaticMaterialMesh,
+//     bone_indices: Vec<(u8, u8)>,
+//     bone_weights: Vec<Vector2>,
+// }
 
 #[derive(Debug, Default)]
-pub struct AnimatedMesh {
-    vertices: Vec<AnimatedVertex>,
+pub struct StaticMaterialMesh {
+    vertices: Vec<StaticMaterialVertex>,
     indices: Vec<u32>,
 }
 
-impl AnimatedMesh {
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct StaticMaterialVertex {
+    position: Vector3,
+    normal: Vector3,
+    tex_coord: Vector2,
+}
+
+impl StaticMaterialVertex {
+    #[inline]
+    pub fn new(position: Vector3, normal: Vector3, tex_coord: Vector2) -> StaticMaterialVertex {
+        StaticMaterialVertex {
+            position,
+            normal,
+            tex_coord,
+        }
+    }
+}
+
+unsafe impl bytemuck::Zeroable for StaticMaterialVertex {}
+
+unsafe impl bytemuck::Pod for StaticMaterialVertex {}
+
+impl StaticMaterialMesh {
     #[inline]
     pub fn clear(&mut self) {
         self.vertices.clear();
@@ -86,28 +45,18 @@ impl AnimatedMesh {
     }
 
     #[inline]
-    pub fn vertices(&self) -> &[AnimatedVertex] {
-        &self.vertices
-    }
-
-    #[inline]
-    pub fn vertices_mut(&mut self) -> &mut [AnimatedVertex] {
-        &mut self.vertices
-    }
-
-    #[inline]
-    pub fn add_vertex(&mut self, vertex: AnimatedVertex) {
+    pub fn add_vertex(&mut self, vertex: StaticMaterialVertex) {
         self.vertices.push(vertex);
+    }
+
+    #[inline]
+    pub fn vertices(&self) -> &[StaticMaterialVertex] {
+        &self.vertices
     }
 
     #[inline]
     pub fn indices(&self) -> &[u32] {
         &self.indices
-    }
-
-    #[inline]
-    pub fn indices_mut(&mut self) -> &mut [u32] {
-        &mut self.indices
     }
 
     #[inline]
