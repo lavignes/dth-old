@@ -874,7 +874,7 @@ fn main_real() -> Result<(), BoxedError> {
             vertex_buffers: &[VertexBufferDescriptor {
                 stride: mem::size_of::<OutputTargetVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float3, 2 => Float2],
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float2],
             }],
         },
         sample_count: 1,
@@ -957,7 +957,7 @@ fn main_real() -> Result<(), BoxedError> {
             vertex_buffers: &[VertexBufferDescriptor {
                 stride: mem::size_of::<OutputTargetVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float3, 2 => Float2],
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float2],
             }],
         },
         sample_count: 1,
@@ -1182,24 +1182,24 @@ fn main_real() -> Result<(), BoxedError> {
                 camera_position += (0.0, -1.0, 0.0).into();
             }
 
-            // for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
-            //     *transform = transform.concat(&Transform {
-            //         position: (
-            //             rng.gen_range(-0.1, 0.1),
-            //             rng.gen_range(-0.1, 0.1),
-            //             rng.gen_range(-0.1, 0.1),
-            //         )
-            //             .into(),
-            //         rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
-            //             * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
-            //             * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
-            //         ..Transform::default()
-            //     });
-            //
-            //     let matrix = (&*transform).into();
-            //     model.model = matrix;
-            //     model.inverse_normal = matrix.inversed().transposed().narrow();
-            // }
+            for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
+                *transform = transform.concat(&Transform {
+                    position: (
+                        rng.gen_range(-0.1, 0.1),
+                        rng.gen_range(-0.1, 0.1),
+                        rng.gen_range(-0.1, 0.1),
+                    )
+                        .into(),
+                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
+                        * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
+                        * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
+                    ..Transform::default()
+                });
+
+                let matrix = (&*transform).into();
+                model.model = matrix;
+                model.inverse_normal = matrix.inversed().transposed().narrow();
+            }
         }
 
         if mouse_dirty || physics_dirty {

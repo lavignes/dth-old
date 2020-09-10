@@ -147,9 +147,9 @@ void main() {
     
     // Add emissive
     float distance = length(view_position - position);
-    float emissive = pow(16.0, emissive_sample);
+    float emissive = pow(4.0, emissive_sample);
     emissive *= 1.0 / (distance * distance);
-    result += emissive;
+    result *= max(emissive, 1.0);
 
     out_color = vec4(result, 1.0);
 
