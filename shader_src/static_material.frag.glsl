@@ -23,6 +23,7 @@ layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 tex_coord;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec4 out_bloom;
 
 struct DirectionalLight {
     vec3 direction;
@@ -119,7 +120,7 @@ vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_
     return ambient + diffuse + specular;
 }
 
-const DirectionalLight DIRECTIONAL_LIGHT = DirectionalLight(vec3(0.2, -1.0, 0.0), vec3(0.2), vec3(1.0), vec3(1.0));
+const DirectionalLight DIRECTIONAL_LIGHT = DirectionalLight(vec3(0.2, -1.0, 0.0), vec3(0.2), vec3(1.0), vec3(2.0));
 const PointLight POINT_LIGHTS[4] = {
     PointLight(vec3(10.0, 10.0, 10.0), 1.0, 0.09, 0.032, vec3(0.2), vec3(1.0), vec3(1.0)),
     PointLight(vec3(-10.0, 10.0, -10.0), 1.0, 0.09, 0.032, vec3(0.2), vec3(1.0), vec3(1.0)),
@@ -146,4 +147,13 @@ void main() {
     }
 
     out_color = vec4(result, 1.0);
+
+    // Compute the bloom
+    // TODO: Maybe just use the emissive for this?
+    float brightness = dot(result, vec3(0.2126, 0.7152, 0.0722));
+    if(brightness > 1.0) {
+        out_bloom = vec4(result, 1.0);
+    } else {
+        out_bloom = vec4(0.0, 0.0, 0.0, 1.0);
+    }
 }

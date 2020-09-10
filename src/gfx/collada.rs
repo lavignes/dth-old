@@ -4,9 +4,10 @@ use crate::{
     math::{Vector2, Vector3},
     util::{self},
 };
-use std::io;
-use std::io::ErrorKind;
-use std::io::Read;
+use std::{
+    io,
+    io::{ErrorKind, Read},
+};
 use xml::{attribute::OwnedAttribute, reader::XmlEvent, EventReader, ParserConfig};
 
 #[derive(Debug, Copy, Clone)]

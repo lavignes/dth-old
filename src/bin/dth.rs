@@ -7,34 +7,34 @@ use sdl2::{
 };
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    AddressMode, BackendBit, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingResource, BindingType, BlendDescriptor, BlendFactor,
-    BlendOperation, BufferUsage, Color, ColorStateDescriptor, ColorWrite, CommandEncoderDescriptor,
-    CompareFunction, CullMode, DepthStencilStateDescriptor, Device, DeviceDescriptor, Extent3d,
-    Features, FilterMode, FrontFace, IndexFormat, InputStepMode, Instance, Limits, LoadOp,
-    Operations, Origin3d, PipelineLayoutDescriptor, PowerPreference, PresentMode,
-    PrimitiveTopology, ProgrammableStageDescriptor, PushConstantRange, Queue,
-    RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
+    AddressMode, BackendBit, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendDescriptor,
+    BlendFactor, BlendOperation, Buffer, BufferUsage, Color, ColorStateDescriptor, ColorWrite,
+    CommandEncoderDescriptor, CompareFunction, CullMode, DepthStencilStateDescriptor, Device,
+    DeviceDescriptor, Extent3d, Features, FilterMode, FrontFace, IndexFormat, InputStepMode,
+    Instance, Limits, LoadOp, Maintain, Operations, Origin3d, PipelineLayoutDescriptor,
+    PowerPreference, PresentMode, PrimitiveTopology, ProgrammableStageDescriptor,
+    PushConstantRange, Queue, RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
     RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RenderPipelineDescriptor,
-    RequestAdapterOptions, SamplerDescriptor, ShaderModule, ShaderStage, StencilStateDescriptor,
-    StencilStateFaceDescriptor, Surface, SwapChain, SwapChainDescriptor, Texture,
-    TextureComponentType, TextureCopyView, TextureDataLayout, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsage, TextureView, TextureViewDescriptor, TextureViewDimension,
-    VertexBufferDescriptor, VertexStateDescriptor,
+    RequestAdapterOptions, Sampler, SamplerDescriptor, ShaderModule, ShaderStage,
+    StencilStateDescriptor, StencilStateFaceDescriptor, Surface, SwapChain, SwapChainDescriptor,
+    Texture, TextureAspect, TextureComponentType, TextureCopyView, TextureDataLayout,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsage, TextureView,
+    TextureViewDescriptor, TextureViewDimension, VertexBufferDescriptor, VertexStateDescriptor,
 };
 
-use dth::gfx::Transform;
 use dth::{
     self,
     gfx::{
         Bitmap, BitmapFormat, BitmapReader, ColladaReader, Frustum, PerspectiveProjection,
-        StaticMaterialMesh, StaticMaterialVertex,
+        StaticMaterialMesh, StaticMaterialVertex, Transform,
     },
     math::{self, Matrix4, Quaternion, Vector2, Vector3},
     util::{self, BoxedError},
 };
 use log::LevelFilter;
 use rand::Rng;
+use std::thread::Thread;
 use std::{
     f32,
     io::Read,
@@ -90,19 +90,28 @@ struct WindowTarget {
     surface: Surface,
     swap_chain: SwapChain,
     hdr_buffer: TextureView,
+    bloom_buffer: TextureView,
+    ping_pong_buffers: [TextureView; 2],
     depth_buffer: TextureView,
 }
 
 impl WindowTarget {
     fn new(device: &Device, window: Window, surface: Surface, size: (u32, u32)) -> WindowTarget {
         let swap_chain = WindowTarget::create_swap_chain(&device, &surface, size);
-        let hdr_buffer = WindowTarget::create_hdr_buffer(&device, size);
+        let hdr_buffer = WindowTarget::create_hdr_frame_buffer(&device, size);
+        let bloom_buffer = WindowTarget::create_hdr_frame_buffer(&device, size);
+        let ping_pong_buffers = [
+            WindowTarget::create_hdr_frame_buffer(&device, size),
+            WindowTarget::create_hdr_frame_buffer(&device, size),
+        ];
         let depth_buffer = WindowTarget::create_depth_buffer(&device, size);
         WindowTarget {
             window,
             surface,
             swap_chain,
             hdr_buffer,
+            bloom_buffer,
+            ping_pong_buffers,
             depth_buffer,
         }
     }
@@ -121,7 +130,12 @@ impl WindowTarget {
     #[inline]
     fn synchronize_size(&mut self, device: &Device, size: (u32, u32)) {
         self.swap_chain = WindowTarget::create_swap_chain(&device, &self.surface, size);
-        self.hdr_buffer = WindowTarget::create_hdr_buffer(&device, size);
+        self.hdr_buffer = WindowTarget::create_hdr_frame_buffer(&device, size);
+        self.bloom_buffer = WindowTarget::create_hdr_frame_buffer(&device, size);
+        self.ping_pong_buffers = [
+            WindowTarget::create_hdr_frame_buffer(&device, size),
+            WindowTarget::create_hdr_frame_buffer(&device, size),
+        ];
         self.depth_buffer = WindowTarget::create_depth_buffer(&device, size);
     }
 
@@ -140,7 +154,7 @@ impl WindowTarget {
         )
     }
 
-    fn create_hdr_buffer(device: &Device, size: (u32, u32)) -> TextureView {
+    fn create_hdr_frame_buffer(device: &Device, size: (u32, u32)) -> TextureView {
         device
             .create_texture(&TextureDescriptor {
                 label: None,
@@ -173,7 +187,10 @@ impl WindowTarget {
                 format: TextureFormat::Depth32Float,
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
             })
-            .create_view(&TextureViewDescriptor::default())
+            .create_view(&TextureViewDescriptor {
+                aspect: TextureAspect::DepthOnly,
+                ..TextureViewDescriptor::default()
+            })
     }
 }
 
@@ -186,6 +203,7 @@ unsafe impl bytemuck::Zeroable for Projection {}
 unsafe impl bytemuck::Pod for Projection {}
 
 impl Projection {
+    #[inline]
     fn to_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
@@ -217,8 +235,27 @@ unsafe impl bytemuck::Zeroable for Exposure {}
 unsafe impl bytemuck::Pod for Exposure {}
 
 impl Exposure {
-    fn to_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(self)
+    #[inline]
+    fn to_words(&self) -> &[u32] {
+        bytemuck::cast_slice(bytemuck::bytes_of(self))
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
+struct GaussianBlur {
+    horizontal: u32,
+    weights: [f32; 5],
+}
+
+unsafe impl bytemuck::Zeroable for GaussianBlur {}
+
+unsafe impl bytemuck::Pod for GaussianBlur {}
+
+impl GaussianBlur {
+    #[inline]
+    fn to_words(&self) -> &[u32] {
+        bytemuck::cast_slice(bytemuck::bytes_of(self))
     }
 }
 
@@ -235,6 +272,7 @@ unsafe impl bytemuck::Zeroable for StaticMaterialMeshModel {}
 unsafe impl bytemuck::Pod for StaticMaterialMeshModel {}
 
 impl StaticMaterialMeshModel {
+    #[inline]
     fn to_words(&self) -> &[u32] {
         bytemuck::cast_slice(bytemuck::bytes_of(self))
     }
@@ -428,6 +466,7 @@ impl TextureManager {
     }
 }
 
+#[inline]
 fn texture_format_from_bitmap_format(format: BitmapFormat) -> TextureFormat {
     match format {
         BitmapFormat::BgraU8 => TextureFormat::Bgra8Unorm,
@@ -486,6 +525,72 @@ fn load_shader<P: AsRef<Path>>(device: &Device, path: P) -> Result<ShaderModule,
     Ok(device.create_shader_module(wgpu::util::make_spirv(buffer.as_slice())))
 }
 
+fn create_color_state(format: TextureFormat) -> ColorStateDescriptor {
+    ColorStateDescriptor {
+        format,
+        color_blend: BlendDescriptor {
+            src_factor: BlendFactor::SrcAlpha,
+            dst_factor: BlendFactor::OneMinusSrcAlpha,
+            operation: BlendOperation::Add,
+        },
+        alpha_blend: BlendDescriptor {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::OneMinusSrcAlpha,
+            operation: BlendOperation::Add,
+        },
+        write_mask: ColorWrite::ALL,
+    }
+}
+
+fn create_forward_primary_bind_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    sampler: &Sampler,
+    hdr_buffer: &TextureView,
+    blur_buffer: &TextureView,
+) -> BindGroup {
+    device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(sampler),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(hdr_buffer),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::TextureView(blur_buffer),
+            },
+        ],
+    })
+}
+
+fn create_blur_primary_bind_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    sampler: &Sampler,
+    image: &TextureView,
+) -> BindGroup {
+    device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(sampler),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(image),
+            },
+        ],
+    })
+}
+
 fn main_real() -> Result<(), BoxedError> {
     let sdl = sdl2::init()?;
     let mut event_pump = sdl.event_pump()?;
@@ -516,22 +621,14 @@ fn main_real() -> Result<(), BoxedError> {
         usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
     });
 
-    let exposure_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
-        contents: Exposure(1.0).to_bytes(),
-        usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-    });
-
     let output_target_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&OUTPUT_TARGET_VERTICES),
         usage: BufferUsage::VERTEX,
     });
 
-    let static_material_vs =
-        load_shader(&device, "res/shaders/static_material_wgpu.vert.glsl.spv")?;
-    let static_material_fs =
-        load_shader(&device, "res/shaders/static_material_wgpu.frag.glsl.spv")?;
+    let static_material_vs = load_shader(&device, "res/shaders/static_material.vert.glsl.spv")?;
+    let static_material_fs = load_shader(&device, "res/shaders/static_material.frag.glsl.spv")?;
 
     let static_material_primary_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -620,9 +717,9 @@ fn main_real() -> Result<(), BoxedError> {
 
     let basic_sampler = device.create_sampler(&SamplerDescriptor {
         label: None,
-        address_mode_u: AddressMode::Repeat,
-        address_mode_v: AddressMode::Repeat,
-        address_mode_w: AddressMode::Repeat,
+        address_mode_u: AddressMode::ClampToEdge,
+        address_mode_v: AddressMode::ClampToEdge,
+        address_mode_w: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Linear,
         min_filter: FilterMode::Linear,
         mipmap_filter: FilterMode::Linear,
@@ -685,21 +782,10 @@ fn main_real() -> Result<(), BoxedError> {
         }),
         primitive_topology: PrimitiveTopology::TriangleList,
         // primitive_topology: PrimitiveTopology::LineList,
-        color_states: &[ColorStateDescriptor {
-            format: TextureFormat::Bgra8Unorm,
-            // format: TextureFormat::Rgba16Float,
-            color_blend: BlendDescriptor {
-                src_factor: BlendFactor::SrcAlpha,
-                dst_factor: BlendFactor::OneMinusSrcAlpha,
-                operation: BlendOperation::Add,
-            },
-            alpha_blend: BlendDescriptor {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::OneMinusSrcAlpha,
-                operation: BlendOperation::Add,
-            },
-            write_mask: ColorWrite::ALL,
-        }],
+        color_states: &[
+            create_color_state(TextureFormat::Rgba16Float),
+            create_color_state(TextureFormat::Rgba16Float),
+        ],
         depth_stencil_state: Some(DepthStencilStateDescriptor {
             format: TextureFormat::Depth32Float,
             depth_write_enabled: true,
@@ -724,10 +810,82 @@ fn main_real() -> Result<(), BoxedError> {
         alpha_to_coverage_enabled: false,
     });
 
+    let blur_vs = load_shader(&device, "res/shaders/blur.vert.glsl.spv")?;
+    let blur_fs = load_shader(&device, "res/shaders/blur.frag.glsl.spv")?;
+
+    let blur_primary_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                // sampler0
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                // image
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let blur_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&blur_primary_bind_group_layout],
+        push_constant_ranges: &[PushConstantRange {
+            stages: ShaderStage::FRAGMENT,
+            range: 0..mem::size_of::<GaussianBlur>() as u32,
+        }],
+    });
+
+    let blur_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&blur_pipeline_layout),
+        vertex_stage: ProgrammableStageDescriptor {
+            module: &blur_vs,
+            entry_point: "main",
+        },
+        fragment_stage: Some(ProgrammableStageDescriptor {
+            module: &blur_fs,
+            entry_point: "main",
+        }),
+        rasterization_state: Some(RasterizationStateDescriptor {
+            front_face: FrontFace::Cw,
+            cull_mode: CullMode::Back,
+            clamp_depth: false,
+            depth_bias: 0,
+            depth_bias_slope_scale: 0.0,
+            depth_bias_clamp: 0.0,
+        }),
+        primitive_topology: PrimitiveTopology::TriangleList,
+        color_states: &[create_color_state(TextureFormat::Rgba16Float)],
+        depth_stencil_state: None,
+        vertex_state: VertexStateDescriptor {
+            index_format: IndexFormat::Uint32,
+            vertex_buffers: &[VertexBufferDescriptor {
+                stride: mem::size_of::<OutputTargetVertex>() as u64,
+                step_mode: InputStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 2 => Float2],
+            }],
+        },
+        sample_count: 1,
+        sample_mask: !0,
+        alpha_to_coverage_enabled: false,
+    });
+
     let hdr_vs = load_shader(&device, "res/shaders/hdr.vert.glsl.spv")?;
     let hdr_fs = load_shader(&device, "res/shaders/hdr.frag.glsl.spv")?;
 
-    let hdr_primary_bind_group_layout =
+    let forward_primary_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -749,47 +907,32 @@ fn main_real() -> Result<(), BoxedError> {
                     },
                     count: None,
                 },
-                // exposure
+                // blur_buffer
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
-                        min_binding_size: NonZeroU64::new(mem::size_of::<Exposure>() as u64),
+                    ty: BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
                     },
                     count: None,
                 },
             ],
         });
 
-    let hdr_primary_bind_group = device.create_bind_group(&BindGroupDescriptor {
+    let forward_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: None,
-        layout: &hdr_primary_bind_group_layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::Sampler(&basic_sampler),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(&target.hdr_buffer),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Buffer(exposure_buffer.slice(..)),
-            },
-        ],
+        bind_group_layouts: &[&forward_primary_bind_group_layout],
+        push_constant_ranges: &[PushConstantRange {
+            stages: ShaderStage::FRAGMENT,
+            range: 0..mem::size_of::<Exposure>() as u32,
+        }],
     });
 
-    let hdr_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+    let forward_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
         label: None,
-        bind_group_layouts: &[&hdr_primary_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    let hdr_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&hdr_pipeline_layout),
+        layout: Some(&forward_pipeline_layout),
         vertex_stage: ProgrammableStageDescriptor {
             module: &hdr_vs,
             entry_point: "main",
@@ -807,20 +950,7 @@ fn main_real() -> Result<(), BoxedError> {
             depth_bias_clamp: 0.0,
         }),
         primitive_topology: PrimitiveTopology::TriangleList,
-        color_states: &[ColorStateDescriptor {
-            format: TextureFormat::Bgra8Unorm,
-            color_blend: BlendDescriptor {
-                src_factor: BlendFactor::SrcAlpha,
-                dst_factor: BlendFactor::OneMinusSrcAlpha,
-                operation: BlendOperation::Add,
-            },
-            alpha_blend: BlendDescriptor {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::OneMinusSrcAlpha,
-                operation: BlendOperation::Add,
-            },
-            write_mask: ColorWrite::ALL,
-        }],
+        color_states: &[create_color_state(TextureFormat::Bgra8Unorm)],
         depth_stencil_state: None,
         vertex_state: VertexStateDescriptor {
             index_format: IndexFormat::Uint32,
@@ -834,6 +964,35 @@ fn main_real() -> Result<(), BoxedError> {
         sample_mask: !0,
         alpha_to_coverage_enabled: false,
     });
+
+    let mut blur_primary_bind_groups = [
+        create_blur_primary_bind_group(
+            &device,
+            &blur_primary_bind_group_layout,
+            &basic_sampler,
+            &target.bloom_buffer,
+        ),
+        create_blur_primary_bind_group(
+            &device,
+            &blur_primary_bind_group_layout,
+            &basic_sampler,
+            &target.ping_pong_buffers[0],
+        ),
+        create_blur_primary_bind_group(
+            &device,
+            &blur_primary_bind_group_layout,
+            &basic_sampler,
+            &target.ping_pong_buffers[1],
+        ),
+    ];
+
+    let mut forward_primary_bind_group = create_forward_primary_bind_group(
+        &device,
+        &forward_primary_bind_group_layout,
+        &basic_sampler,
+        &target.hdr_buffer,
+        &target.ping_pong_buffers[1],
+    );
 
     let mut collada = ColladaReader::default();
     let mut cube_mesh = StaticMaterialMesh::default();
@@ -857,6 +1016,25 @@ fn main_real() -> Result<(), BoxedError> {
     let mut rng = rand::thread_rng();
     let mut cube_models = vec![StaticMaterialMeshModel::default(); 512];
     let mut cube_transforms = vec![Transform::default(); 512];
+
+    for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
+        *transform = transform.concat(&Transform {
+            position: (
+                rng.gen_range(-24.0, 24.0),
+                rng.gen_range(-24.0, 24.0),
+                rng.gen_range(-24.0, 24.0),
+            )
+                .into(),
+            rotation: Quaternion::from_angle_up(rng.gen_range(0.0, math::TAU))
+                * Quaternion::from_angle_right(rng.gen_range(0.0, math::TAU))
+                * Quaternion::from_angle_forward(rng.gen_range(0.0, math::TAU)),
+            ..Transform::default()
+        });
+
+        let matrix = (&*transform).into();
+        model.model = matrix;
+        model.inverse_normal = matrix.inversed().transposed();
+    }
 
     let mut bmp_reader = BitmapReader::default();
     let mut diffuse_bmp = Bitmap::default();
@@ -1004,24 +1182,24 @@ fn main_real() -> Result<(), BoxedError> {
                 camera_position += (0.0, -1.0, 0.0).into();
             }
 
-            for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
-                *transform = transform.concat(&Transform {
-                    position: (
-                        rng.gen_range(-0.1, 0.1),
-                        rng.gen_range(-0.1, 0.1),
-                        rng.gen_range(-0.1, 0.1),
-                    )
-                        .into(),
-                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
-                        * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
-                        * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
-                    ..Transform::default()
-                });
-
-                let matrix = (&*transform).into();
-                model.model = matrix;
-                model.inverse_normal = matrix.inversed().transposed();
-            }
+            // for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
+            //     *transform = transform.concat(&Transform {
+            //         position: (
+            //             rng.gen_range(-0.1, 0.1),
+            //             rng.gen_range(-0.1, 0.1),
+            //             rng.gen_range(-0.1, 0.1),
+            //         )
+            //             .into(),
+            //         rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
+            //             * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
+            //             * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
+            //         ..Transform::default()
+            //     });
+            //
+            //     let matrix = (&*transform).into();
+            //     model.model = matrix;
+            //     model.inverse_normal = matrix.inversed().transposed();
+            // }
         }
 
         if mouse_dirty || physics_dirty {
@@ -1029,9 +1207,6 @@ fn main_real() -> Result<(), BoxedError> {
             queue.write_buffer(&view_buffer, 0, view_parts.0.to_bytes());
             frustum.update_look_at(camera_position, view_parts.1, Vector3::up());
         }
-
-        // The render buffers will automatically be swapped when this texture drops
-        let current_frame = target.swap_chain.get_current_frame()?;
 
         if let Some(size) = projection_dirty {
             projection.aspect_ratio = size.x() / size.y();
@@ -1041,19 +1216,61 @@ fn main_real() -> Result<(), BoxedError> {
                 compute_projection(&projection).to_bytes(),
             );
             frustum.update_projection(&projection);
+
+            // Rre-bind the new HDR buffer since the size changed!
+            forward_primary_bind_group = create_forward_primary_bind_group(
+                &device,
+                &forward_primary_bind_group_layout,
+                &basic_sampler,
+                &target.hdr_buffer,
+                &target.ping_pong_buffers[1],
+            );
+            // And the blur bind-groups!
+            blur_primary_bind_groups = [
+                create_blur_primary_bind_group(
+                    &device,
+                    &blur_primary_bind_group_layout,
+                    &basic_sampler,
+                    &target.bloom_buffer,
+                ),
+                create_blur_primary_bind_group(
+                    &device,
+                    &blur_primary_bind_group_layout,
+                    &basic_sampler,
+                    &target.ping_pong_buffers[0],
+                ),
+                create_blur_primary_bind_group(
+                    &device,
+                    &blur_primary_bind_group_layout,
+                    &basic_sampler,
+                    &target.ping_pong_buffers[1],
+                ),
+            ];
         }
 
+        // Pass 1: Draw the scene to the HDR buffer and also output the brightest parts to the
+        // bloom buffer.
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &current_frame.output.view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::BLACK),
-                        store: true,
+                color_attachments: &[
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &target.hdr_buffer,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
                     },
-                }],
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &target.bloom_buffer,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
+                    },
+                ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &target.depth_buffer,
                     depth_ops: Some(Operations {
@@ -1083,25 +1300,193 @@ fn main_real() -> Result<(), BoxedError> {
             }
         }
 
-        // {
-        //     let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        //         color_attachments: &[RenderPassColorAttachmentDescriptor {
-        //             attachment: &current_frame.output.view,
-        //             resolve_target: None,
-        //             ops: Operations {
-        //                 load: LoadOp::Clear(Color::BLACK),
-        //                 store: true,
-        //             },
-        //         }],
-        //         depth_stencil_attachment: None,
-        //     });
-        //
-        //     render_pass.set_pipeline(&hdr_pipeline);
-        //     render_pass.set_bind_group(0, &hdr_primary_bind_group, &[]);
-        //     render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
-        //     render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
-        // }
+        // Pass 2-N: Gaussian blur the bloom buffer
+        // Bounces "back and forth" blurring the bloom buffer inside the ping-pong buffers
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[0],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[0], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 0,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
 
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[1],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[1], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 1,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[0],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[2], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 0,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[1],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[1], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 1,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[0],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[2], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 0,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &target.ping_pong_buffers[1],
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&blur_pipeline);
+            render_pass.set_bind_group(0, &blur_primary_bind_groups[1], &[]);
+            render_pass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                GaussianBlur {
+                    horizontal: 1,
+                    weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
+                }
+                .to_words(),
+            );
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
+
+        // The render buffers will automatically be swapped when this texture drops
+        let current_frame = target.swap_chain.get_current_frame()?;
+
+        // Final Pass: Merge the HDR and blur buffer
+        {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &current_frame.output.view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+
+            render_pass.set_pipeline(&forward_pipeline);
+            render_pass.set_bind_group(0, &forward_primary_bind_group, &[]);
+            render_pass.set_push_constants(ShaderStage::FRAGMENT, 0, Exposure(1.0).to_words());
+            render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
+            render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
+        }
         queue.submit(Some(encoder.finish()));
 
         frame_rate += 1;
