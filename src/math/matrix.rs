@@ -3,6 +3,14 @@ use crate::math::{Quaternion, Vector3, Vector4};
 use crate::gfx::PerspectiveProjection;
 use std::ops::{Index, IndexMut, Mul};
 
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Matrix3(pub [Vector3; 3]);
+
+unsafe impl bytemuck::Zeroable for Matrix3 {}
+unsafe impl bytemuck::Pod for Matrix3 {}
+
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Matrix4(pub [Vector4; 4]);
@@ -211,6 +219,15 @@ impl Matrix4 {
             Vector4([self.0[0].0[1], self.0[1].0[1], self.0[2].0[1], self.0[3].0[1]]),
             Vector4([self.0[0].0[2], self.0[1].0[2], self.0[2].0[2], self.0[3].0[2]]),
             Vector4([self.0[0].0[3], self.0[1].0[3], self.0[2].0[3], self.0[3].0[3]]),
+        ])
+    }
+
+    #[inline]
+    pub fn narrow(&self) -> Matrix3 {
+        Matrix3([
+            self.0[0].narrow(),
+            self.0[1].narrow(),
+            self.0[2].narrow(),
         ])
     }
 

@@ -29,7 +29,7 @@ use dth::{
         Bitmap, BitmapFormat, BitmapReader, ColladaReader, Frustum, PerspectiveProjection,
         StaticMaterialMesh, StaticMaterialVertex, Transform,
     },
-    math::{self, Matrix4, Quaternion, Vector2, Vector3},
+    math::{self, Matrix3, Matrix4, Quaternion, Vector2, Vector3},
     util::{self, BoxedError},
 };
 use log::LevelFilter;
@@ -47,7 +47,7 @@ use std::{
 
 /// The smallest possible push-constant buffer size (in bytes) according to WGPU docs.
 /// This is the lower limit for push-constants on Vulkan.
-const MAX_PUSH_CONSTANT_SIZE: usize = 256;
+const MAX_PUSH_CONSTANT_SIZE: usize = 128;
 
 fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Queue), BoxedError> {
     let sdl_video = sdl.video()?;
@@ -263,7 +263,7 @@ impl GaussianBlur {
 #[derive(Copy, Clone, Default, Debug)]
 struct StaticMaterialMeshModel {
     model: Matrix4,
-    inverse_normal: Matrix4,
+    inverse_normal: Matrix3,
     tex_index: u32,
 }
 
@@ -1033,7 +1033,7 @@ fn main_real() -> Result<(), BoxedError> {
 
         let matrix = (&*transform).into();
         model.model = matrix;
-        model.inverse_normal = matrix.inversed().transposed();
+        model.inverse_normal = matrix.inversed().transposed().narrow();
     }
 
     let mut bmp_reader = BitmapReader::default();
@@ -1198,7 +1198,7 @@ fn main_real() -> Result<(), BoxedError> {
             //
             //     let matrix = (&*transform).into();
             //     model.model = matrix;
-            //     model.inverse_normal = matrix.inversed().transposed();
+            //     model.inverse_normal = matrix.inversed().transposed().narrow();
             // }
         }
 

@@ -11,7 +11,7 @@ layout(set = 0, binding = 1) uniform View {
 
 layout(push_constant) uniform Model {
     mat4 model;
-    mat4 inverse_normal;
+    mat3 inverse_normal;
     uint tex_index;
 };
 
@@ -29,6 +29,6 @@ void main() {
     gl_Position = projection * view * world_position;
 
     out_position = world_position.xyz;
-    out_normal = mat3(inverse_normal) * normal;
+    out_normal = inverse_normal * normal;
     out_tex_coord = tex_coord;
 }

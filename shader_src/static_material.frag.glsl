@@ -7,7 +7,7 @@ layout(set = 0, binding = 1) uniform View {
 
 layout(push_constant) uniform Model {
     mat4 model;
-    mat4 inverse_normal;
+    mat3 inverse_normal;
     uint tex_index;
 };
 
@@ -62,7 +62,7 @@ struct SpotLight {
 
 const float GAMMA = 2.2;
 
-vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
+vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction, vec3 diffuse_sample, float specular_sample) {
     vec3 light_direction = normalize(-light.direction);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -72,11 +72,11 @@ vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction,
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample[0];
+    vec3 specular = light.specular * spec * specular_sample;
     return ambient + diffuse + specular;
 }
 
-vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
+vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, float specular_sample) {
     vec3 light_direction = normalize(light.position - fragment_position);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -89,14 +89,14 @@ vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 vie
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample[0];
+    vec3 specular = light.specular * spec * specular_sample;
     ambient *= attenuation;
     diffuse *= attenuation;
     specular *= attenuation;
     return ambient + diffuse + specular;
 }
 
-vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
+vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, float specular_sample) {
     vec3 light_direction = normalize(light.position - fragment_position);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -113,7 +113,7 @@ vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample[0];
+    vec3 specular = light.specular * spec * specular_sample;
     ambient *= attenuation * intensity;
     diffuse *= attenuation * intensity;
     specular *= attenuation * intensity;
@@ -133,7 +133,6 @@ void main() {
     vec3 diffuse_sample = pow(texture(sampler2D(diffuse_map[tex_index], sampler0), tex_coord).rgb, vec3(GAMMA));
     float specular_sample = texture(sampler2D(specular_map[tex_index], sampler0), tex_coord).r;
     float emissive_sample = texture(sampler2D(emissive_map[tex_index], sampler0), tex_coord).r;
-    vec2 specular_emissive_sample = vec2(specular_sample, emissive_sample);
     // convert normal to [-1.0, 1.0]
     vec3 normal_sample = (texture(sampler2D(normal_map[tex_index], sampler0), tex_coord).rgb * vec3(2.0)) - vec3(1.0);
 
@@ -141,15 +140,20 @@ void main() {
     vec3 norm = normalize(normal);
     vec3 view_direction = normalize(view_position - position);
 
-    vec3 result = directional_light(DIRECTIONAL_LIGHT, norm, view_direction, diffuse_sample, specular_emissive_sample);
+    vec3 result = directional_light(DIRECTIONAL_LIGHT, norm, view_direction, diffuse_sample, specular_sample);
     for(int i = 0; i < 4; i++) {
-        result += point_light(POINT_LIGHTS[i], norm, position, view_direction, diffuse_sample, specular_emissive_sample);
+        result += point_light(POINT_LIGHTS[i], norm, position, view_direction, diffuse_sample, specular_sample);
     }
+    
+    // Add emissive
+    float distance = length(view_position - position);
+    float emissive = pow(16.0, emissive_sample);
+    emissive *= 1.0 / (distance * distance);
+    result += emissive;
 
     out_color = vec4(result, 1.0);
 
     // Compute the bloom
-    // TODO: Maybe just use the emissive for this?
     float brightness = dot(result, vec3(0.2126, 0.7152, 0.0722));
     if(brightness > 1.0) {
         out_bloom = vec4(result, 1.0);
