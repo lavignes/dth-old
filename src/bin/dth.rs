@@ -1182,24 +1182,24 @@ fn main_real() -> Result<(), BoxedError> {
                 camera_position += (0.0, -1.0, 0.0).into();
             }
 
-            for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
-                *transform = transform.concat(&Transform {
-                    position: (
-                        rng.gen_range(-0.1, 0.1),
-                        rng.gen_range(-0.1, 0.1),
-                        rng.gen_range(-0.1, 0.1),
-                    )
-                        .into(),
-                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
-                        * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
-                        * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
-                    ..Transform::default()
-                });
-
-                let matrix = (&*transform).into();
-                model.model = matrix;
-                model.inverse_normal = matrix.inversed().transposed().narrow();
-            }
+            // for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
+            //     *transform = transform.concat(&Transform {
+            //         position: (
+            //             rng.gen_range(-0.05, 0.05),
+            //             rng.gen_range(-0.05, 0.05),
+            //             rng.gen_range(-0.05, 0.05),
+            //         )
+            //             .into(),
+            //         rotation: Quaternion::from_angle_up(rng.gen_range(-0.05, 0.05))
+            //             * Quaternion::from_angle_right(rng.gen_range(-0.05, 0.05))
+            //             * Quaternion::from_angle_forward(rng.gen_range(-0.05, 0.05)),
+            //         ..Transform::default()
+            //     });
+            //
+            //     let matrix = (&*transform).into();
+            //     model.model = matrix;
+            //     model.inverse_normal = matrix.inversed().transposed().narrow();
+            // }
         }
 
         if mouse_dirty || physics_dirty {
@@ -1483,7 +1483,7 @@ fn main_real() -> Result<(), BoxedError> {
 
             render_pass.set_pipeline(&forward_pipeline);
             render_pass.set_bind_group(0, &forward_primary_bind_group, &[]);
-            render_pass.set_push_constants(ShaderStage::FRAGMENT, 0, Exposure(1.0).to_words());
+            render_pass.set_push_constants(ShaderStage::FRAGMENT, 0, Exposure(0.8).to_words());
             render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
             render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
         }

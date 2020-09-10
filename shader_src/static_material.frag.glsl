@@ -120,7 +120,7 @@ vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_
     return ambient + diffuse + specular;
 }
 
-const DirectionalLight DIRECTIONAL_LIGHT = DirectionalLight(vec3(0.2, -1.0, 0.0), vec3(0.2), vec3(1.0), vec3(2.0));
+const DirectionalLight DIRECTIONAL_LIGHT = DirectionalLight(vec3(0.2, -1.0, 0.0), vec3(0.2), vec3(1.0), vec3(1.0));
 const PointLight POINT_LIGHTS[4] = {
     PointLight(vec3(10.0, 10.0, 10.0), 1.0, 0.09, 0.032, vec3(0.2), vec3(1.0), vec3(1.0)),
     PointLight(vec3(-10.0, 10.0, -10.0), 1.0, 0.09, 0.032, vec3(0.2), vec3(1.0), vec3(1.0)),
@@ -141,15 +141,15 @@ void main() {
     vec3 view_direction = normalize(view_position - position);
 
     vec3 result = directional_light(DIRECTIONAL_LIGHT, norm, view_direction, diffuse_sample, specular_sample);
-    for(int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++) {
         result += point_light(POINT_LIGHTS[i], norm, position, view_direction, diffuse_sample, specular_sample);
     }
-    
+
     // Add emissive
     float distance = length(view_position - position);
-    float emissive = pow(4.0, emissive_sample);
+    float emissive = 1000.0 * emissive_sample;
     emissive *= 1.0 / (distance * distance);
-    result *= max(emissive, 1.0);
+    result += emissive;
 
     out_color = vec4(result, 1.0);
 
