@@ -14,8 +14,9 @@ layout(push_constant) uniform Model {
 layout(set = 0, binding = 2) uniform sampler sampler0;
 
 layout(set = 1, binding = 0) uniform texture2D diffuse_map[256];
-layout(set = 1, binding = 1) uniform texture2D specular_emissive_map[256];
-layout(set = 1, binding = 2) uniform texture2D normal_map[256];
+layout(set = 1, binding = 1) uniform texture2D specular_map[256];
+layout(set = 1, binding = 2) uniform texture2D emissive_map[256];
+layout(set = 1, binding = 3) uniform texture2D normal_map[256];
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
@@ -60,7 +61,7 @@ struct SpotLight {
 
 const float GAMMA = 2.2;
 
-vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction, vec3 diffuse_sample, vec4 specular_emissive_sample) {
+vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
     vec3 light_direction = normalize(-light.direction);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -70,11 +71,11 @@ vec3 directional_light(DirectionalLight light, vec3 normal, vec3 view_direction,
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample.rgb;
+    vec3 specular = light.specular * spec * specular_emissive_sample[0];
     return ambient + diffuse + specular;
 }
 
-vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec4 specular_emissive_sample) {
+vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
     vec3 light_direction = normalize(light.position - fragment_position);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -87,14 +88,14 @@ vec3 point_light(PointLight light, vec3 normal, vec3 fragment_position, vec3 vie
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample.rgb;
+    vec3 specular = light.specular * spec * specular_emissive_sample[0];
     ambient *= attenuation;
     diffuse *= attenuation;
     specular *= attenuation;
     return ambient + diffuse + specular;
 }
 
-vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec4 specular_emissive_sample) {
+vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_direction, vec3 diffuse_sample, vec2 specular_emissive_sample) {
     vec3 light_direction = normalize(light.position - fragment_position);
     // diffuse shading
     float diff = max(dot(normal, light_direction), 0.0);
@@ -111,7 +112,7 @@ vec3 spot_light(SpotLight light, vec3 normal, vec3 fragment_position, vec3 view_
     // combine results
     vec3 ambient = light.ambient * diffuse_sample;
     vec3 diffuse = light.diffuse * diff * diffuse_sample;
-    vec3 specular = light.specular * spec * specular_emissive_sample.rgb;
+    vec3 specular = light.specular * spec * specular_emissive_sample[0];
     ambient *= attenuation * intensity;
     diffuse *= attenuation * intensity;
     specular *= attenuation * intensity;
@@ -129,7 +130,9 @@ const PointLight POINT_LIGHTS[4] = {
 void main() {
     // gamma-corrected sampled diffuse
     vec3 diffuse_sample = pow(texture(sampler2D(diffuse_map[tex_index], sampler0), tex_coord).rgb, vec3(GAMMA));
-    vec4 specular_emissive_sample = texture(sampler2D(specular_emissive_map[tex_index], sampler0), tex_coord);
+    float specular_sample = texture(sampler2D(specular_map[tex_index], sampler0), tex_coord).r;
+    float emissive_sample = texture(sampler2D(emissive_map[tex_index], sampler0), tex_coord).r;
+    vec2 specular_emissive_sample = vec2(specular_sample, emissive_sample);
     // convert normal to [-1.0, 1.0]
     vec3 normal_sample = (texture(sampler2D(normal_map[tex_index], sampler0), tex_coord).rgb * vec3(2.0)) - vec3(1.0);
 

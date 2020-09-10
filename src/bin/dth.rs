@@ -23,6 +23,7 @@ use wgpu::{
     VertexBufferDescriptor, VertexStateDescriptor,
 };
 
+use dth::gfx::Transform;
 use dth::{
     self,
     gfx::{
@@ -307,7 +308,8 @@ struct TextureManager {
     depth: usize,
     texture_index: u32,
     diffuse_maps: (Texture, TextureView),
-    specular_emissive_maps: (Texture, TextureView),
+    specular_maps: (Texture, TextureView),
+    emmisive_maps: (Texture, TextureView),
     normal_maps: (Texture, TextureView),
 }
 
@@ -317,9 +319,34 @@ impl TextureManager {
             resolution,
             depth,
             texture_index: 0,
-            diffuse_maps: TextureManager::create_texture(device, resolution, depth, 8),
-            specular_emissive_maps: TextureManager::create_texture(device, resolution, depth, 8),
-            normal_maps: TextureManager::create_texture(device, resolution, depth, 8),
+            diffuse_maps: TextureManager::create_texture(
+                device,
+                resolution,
+                texture_format_from_bitmap_format(BitmapFormat::DXT5),
+                depth,
+                8,
+            ),
+            specular_maps: TextureManager::create_texture(
+                device,
+                resolution,
+                texture_format_from_bitmap_format(BitmapFormat::GrayU8),
+                depth,
+                8,
+            ),
+            emmisive_maps: TextureManager::create_texture(
+                device,
+                resolution,
+                texture_format_from_bitmap_format(BitmapFormat::GrayU8),
+                depth,
+                8,
+            ),
+            normal_maps: TextureManager::create_texture(
+                device,
+                resolution,
+                texture_format_from_bitmap_format(BitmapFormat::DXT1),
+                depth,
+                8,
+            ),
         }
     }
 
@@ -336,13 +363,8 @@ impl TextureManager {
 
         TextureManager::write_texture(queue, &self.diffuse_maps.0, texture_index, &diffuse, 8);
         TextureManager::write_texture(queue, &self.normal_maps.0, texture_index, &normal, 8);
-        TextureManager::write_texture(
-            queue,
-            &self.specular_emissive_maps.0,
-            texture_index,
-            &specular,
-            8,
-        );
+        TextureManager::write_texture(queue, &self.specular_maps.0, texture_index, &specular, 8);
+        TextureManager::write_texture(queue, &self.emmisive_maps.0, texture_index, &emissive, 8);
 
         Ok(texture_index)
     }
@@ -350,6 +372,7 @@ impl TextureManager {
     fn create_texture(
         device: &Device,
         resolution: usize,
+        format: TextureFormat,
         depth: usize,
         mip_levels: usize,
     ) -> (Texture, TextureView) {
@@ -363,7 +386,7 @@ impl TextureManager {
             mip_level_count: mip_levels as u32,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bc3RgbaUnorm,
+            format,
             usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
         });
         let texture_view = texture.create_view(&TextureViewDescriptor::default());
@@ -405,17 +428,21 @@ impl TextureManager {
     }
 }
 
+fn texture_format_from_bitmap_format(format: BitmapFormat) -> TextureFormat {
+    match format {
+        BitmapFormat::BgraU8 => TextureFormat::Bgra8Unorm,
+        BitmapFormat::GrayU8 => TextureFormat::R8Unorm,
+        BitmapFormat::DXT1 => TextureFormat::Bc1RgbaUnorm,
+        BitmapFormat::DXT3 => TextureFormat::Bc2RgbaUnorm,
+        BitmapFormat::DXT5 => TextureFormat::Bc3RgbaUnorm,
+    }
+}
+
 fn load_texture(
     device: &Device,
     queue: &Queue,
     bitmap: &Bitmap,
 ) -> Result<TextureView, BoxedError> {
-    let format = match bitmap.format() {
-        BitmapFormat::BgraU8 => TextureFormat::Bgra8Unorm,
-        BitmapFormat::DXT3 => TextureFormat::Bc2RgbaUnorm,
-        BitmapFormat::DXT5 => TextureFormat::Bc3RgbaUnorm,
-    };
-
     let size = (bitmap.size().x() as u32, bitmap.size().y() as u32);
     let texture = device.create_texture(&TextureDescriptor {
         label: None,
@@ -427,7 +454,7 @@ fn load_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: TextureDimension::D2,
-        format,
+        format: texture_format_from_bitmap_format(bitmap.format()),
         usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
     });
     let texture_view = texture.create_view(&TextureViewDescriptor::default());
@@ -555,7 +582,7 @@ fn main_real() -> Result<(), BoxedError> {
                     },
                     count: None,
                 },
-                // specular_emissive_map
+                // specular_map
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::FRAGMENT,
@@ -566,9 +593,20 @@ fn main_real() -> Result<(), BoxedError> {
                     },
                     count: None,
                 },
-                // normal_map
+                // emissive_map
                 BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                    },
+                    count: None,
+                },
+                // normal_map
+                BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: ShaderStage::FRAGMENT,
                     ty: BindingType::SampledTexture {
                         multisampled: false,
@@ -818,21 +856,7 @@ fn main_real() -> Result<(), BoxedError> {
 
     let mut rng = rand::thread_rng();
     let mut cube_models = vec![StaticMaterialMeshModel::default(); 512];
-    for cube_model in &mut cube_models {
-        let model = &(&Matrix4::rotate_up(rng.gen_range(0.0, math::TAU))
-            * &Matrix4::rotate_right(rng.gen_range(0.0, math::TAU)))
-            * &Matrix4::translate(
-                (
-                    rng.gen_range(-32.0, 32.0),
-                    rng.gen_range(-32.0, 32.0),
-                    rng.gen_range(-32.0, 32.0),
-                )
-                    .into(),
-            );
-        cube_model.model = model;
-        cube_model.inverse_normal = model.inversed().transposed();
-        cube_model.tex_index = 0;
-    }
+    let mut cube_transforms = vec![Transform::default(); 512];
 
     let mut bmp_reader = BitmapReader::default();
     let mut diffuse_bmp = Bitmap::default();
@@ -872,10 +896,14 @@ fn main_real() -> Result<(), BoxedError> {
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::TextureView(&tex_manager.specular_emissive_maps.1),
+                resource: BindingResource::TextureView(&tex_manager.specular_maps.1),
             },
             BindGroupEntry {
                 binding: 2,
+                resource: BindingResource::TextureView(&tex_manager.emmisive_maps.1),
+            },
+            BindGroupEntry {
+                binding: 3,
                 resource: BindingResource::TextureView(&tex_manager.normal_maps.1),
             },
         ],
@@ -974,6 +1002,25 @@ fn main_real() -> Result<(), BoxedError> {
                 camera_position += (0.0, 1.0, 0.0).into();
             } else if l_shift {
                 camera_position += (0.0, -1.0, 0.0).into();
+            }
+
+            for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
+                *transform = transform.concat(&Transform {
+                    position: (
+                        rng.gen_range(-0.1, 0.1),
+                        rng.gen_range(-0.1, 0.1),
+                        rng.gen_range(-0.1, 0.1),
+                    )
+                        .into(),
+                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.1, 0.1))
+                        * Quaternion::from_angle_right(rng.gen_range(-0.1, 0.1))
+                        * Quaternion::from_angle_forward(rng.gen_range(-0.1, 0.1)),
+                    ..Transform::default()
+                });
+
+                let matrix = (&*transform).into();
+                model.model = matrix;
+                model.inverse_normal = matrix.inversed().transposed();
             }
         }
 

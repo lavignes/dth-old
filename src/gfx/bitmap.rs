@@ -13,6 +13,8 @@ use crate::{
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BitmapFormat {
     BgraU8,
+    GrayU8,
+    DXT1,
     DXT3,
     DXT5,
 }
@@ -106,6 +108,7 @@ bitflags::bitflags! {
         const ALPHA_PIXELS = 0x00000001;
         const FOUR_CHARACTER_CODE = 0x00000004;
         const RGB = 0x00000040;
+        const LUMINANCE = 0x00020000;
     }
 }
 
@@ -184,12 +187,19 @@ impl BitmapReader {
         // Jump to pixel data (it is further down on FourCharacterCode == "DX11" but we dont do it)
         reader.seek(SeekFrom::Start(0x70))?;
         if format_flags.contains(PixelFormatFlags::FOUR_CHARACTER_CODE) {
+            let block_size;
             match four_character_code {
+                "DXT1" => {
+                    bitmap.format = BitmapFormat::DXT1;
+                    block_size = 8;
+                }
                 "DXT3" => {
                     bitmap.format = BitmapFormat::DXT3;
+                    block_size = 16;
                 }
                 "DXT5" => {
                     bitmap.format = BitmapFormat::DXT5;
+                    block_size = 16;
                 }
                 _ => {
                     return util::io_err(
@@ -202,11 +212,38 @@ impl BitmapReader {
             for mip_level in 0..mip_levels {
                 let mip_width = (width >> mip_level) as usize;
                 let mip_height = (height >> mip_level) as usize;
-                // Note: The constant 16 is for DXT2-5. It would be 8 for DXT1
-                let block_size = 16;
                 let mip_pitch = ((mip_width + 3) / 4).max(1) * block_size;
                 // This *should* also be the same as pitch at mip_level==0
                 let linear_size = mip_pitch * ((mip_height + 3) / 4).max(1);
+                bitmap.data.reserve(linear_size);
+                for _ in 0..linear_size {
+                    bitmap.data.push(util::read_u8(reader)?);
+                }
+                bitmap.mip_levels.push(MipLevel {
+                    start: offset,
+                    end: offset + linear_size,
+                    size: (mip_width as f32, mip_height as f32).into(),
+                    bytes_per_row: mip_pitch,
+                });
+                offset += linear_size;
+            }
+        } else if format_flags.contains(PixelFormatFlags::LUMINANCE) {
+            if format_flags.contains(PixelFormatFlags::ALPHA_PIXELS) {
+                return util::io_err(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "Non 8-bit Luminance pixel formats are not supported. Image pixels are {}-bit",
+                        rgb_bit_counts
+                    ),
+                );
+            }
+            bitmap.format = BitmapFormat::GrayU8;
+            let mut offset = 0;
+            for mip_level in 0..mip_levels {
+                let mip_width = (width >> mip_level) as usize;
+                let mip_height = (height >> mip_level) as usize;
+                let mip_pitch = mip_width;
+                let linear_size = mip_pitch * mip_height;
                 bitmap.data.reserve(linear_size);
                 for _ in 0..linear_size {
                     bitmap.data.push(util::read_u8(reader)?);
@@ -224,12 +261,11 @@ impl BitmapReader {
                 return util::io_err(
                     ErrorKind::InvalidData,
                     format!(
-                        "Non 32-bit pixel formats are not supported. Image pixels are {}-bit",
+                        "Non 32-bit RGB pixel formats are not supported. Image pixels are {}-bit",
                         rgb_bit_counts
                     ),
                 );
             }
-
             bitmap.format = BitmapFormat::BgraU8;
             let linear_size = height * pitch;
             bitmap.data.reserve(linear_size as usize);
