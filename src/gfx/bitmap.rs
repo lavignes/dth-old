@@ -1,14 +1,9 @@
 use std::{
     io::{self, ErrorKind, Read, Seek, SeekFrom},
-    mem, str, u16, u32,
+    str, u32,
 };
 
-use crate::{
-    collections::{PoolId, PoolObject},
-    math::{Float16, Vector2},
-    util,
-    util::BoxedError,
-};
+use crate::{math::Vector2, util};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BitmapFormat {
