@@ -1,12 +1,12 @@
 use crate::{
     collections::XorHashMap,
     gfx::{StaticMaterialMesh, StaticMaterialVertex},
-    math::{Vector2, Vector3},
+    math::{Vector2, Vector3, Vector4},
     util::{self},
 };
 use std::{
-    io,
-    io::{ErrorKind, Read},
+    io::{self, ErrorKind, Read},
+    iter,
 };
 use xml::{attribute::OwnedAttribute, reader::XmlEvent, EventReader, ParserConfig};
 
@@ -41,6 +41,7 @@ enum TriangleInputKind {
     Vertex,
     Normal,
     TexCoord,
+    Color,
 }
 
 #[derive(Debug)]
@@ -80,11 +81,14 @@ pub struct ColladaReader {
     // Buffer to store positions
     positions: Vec<Vector3>,
 
-    // Buffer for store normals
+    // Buffer to store normals
     normals: Vec<Vector3>,
 
-    // Buffer for store tex coords
+    // Buffer to store tex coords
     tex_coords: Vec<Vector2>,
+
+    // Buffer to store colors
+    colors: Vec<Vector4>,
 }
 
 impl ColladaReader {
@@ -103,6 +107,8 @@ impl ColladaReader {
         self.primitive_indices.clear();
         self.positions.clear();
         self.normals.clear();
+        self.tex_coords.clear();
+        self.colors.clear();
         self.push(State::Init);
 
         let mut xml_reader = EventReader::new_with_config(
@@ -328,6 +334,10 @@ impl ColladaReader {
                                         offset,
                                         kind: TriangleInputKind::TexCoord,
                                     },
+                                    "COLOR" => TriangleInput {
+                                        offset,
+                                        kind: TriangleInputKind::Color,
+                                    },
                                     i => unimplemented!("{:?}", i),
                                 },
                             );
@@ -406,6 +416,21 @@ impl ColladaReader {
                                         }
                                         k => unimplemented!("{:?}", k),
                                     },
+                                    TriangleInputKind::Color => match &source.kind {
+                                        Some(SourceKind::FloatArray(colors)) => {
+                                            let offset = index * 4;
+                                            self.colors.push(
+                                                (
+                                                    colors[offset],
+                                                    colors[offset + 1],
+                                                    colors[offset + 2],
+                                                    colors[offset + 3],
+                                                )
+                                                    .into(),
+                                            );
+                                        }
+                                        k => unimplemented!("{:?}", k),
+                                    },
                                 }
                             }
                         }
@@ -415,15 +440,29 @@ impl ColladaReader {
             }
         }
 
+        // TODO: This is kind of gross.
+        //  This gives is a default white color
+        let white = Vector4::splat(1.0);
+        let mut white_iter = iter::repeat(&white);
+        let mut colors_iter = self.colors.iter();
+        let colors: &mut dyn Iterator<Item = &Vector4> = if self.colors.is_empty() {
+            &mut white_iter // 'as &mut dyn Iterator<Item = &Vector4>' is also legal here!
+        } else {
+            &mut colors_iter
+        };
+
         // TODO: Compress like indices
-        for (i, ((&position, &normal), &tex_coord)) in self
+        for (i, (((&position, &normal), &tex_coord), &color)) in self
             .positions
             .iter()
             .zip(self.normals.iter())
             .zip(self.tex_coords.iter())
+            .zip(colors)
             .enumerate()
         {
-            mesh.add_vertex(StaticMaterialVertex::new(position, normal, tex_coord));
+            mesh.add_vertex(StaticMaterialVertex::new(
+                position, normal, tex_coord, color,
+            ));
             mesh.add_index(i as u32);
         }
         Ok(())
@@ -478,57 +517,79 @@ mod test {
       <author>Blender User</author>
       <authoring_tool>Blender 2.82.7</authoring_tool>
     </contributor>
-    <created>2020-08-31T16:02:53</created>
-    <modified>2020-08-31T16:02:53</modified>
+    <created>2020-09-20T16:23:45</created>
+    <modified>2020-09-20T16:23:45</modified>
     <unit name="meter" meter="1"/>
     <up_axis>Z_UP</up_axis>
   </asset>
   <library_images/>
   <library_geometries>
-    <geometry id="Cube_004-mesh" name="Cube.004">
+    <geometry id="Plane-mesh" name="Plane">
       <mesh>
-        <source id="Cube_004-mesh-positions">
-          <float_array id="Cube_004-mesh-positions-array" count="36">-1.22211 -0.2 -0.8601566 -1.22211 -0.2 -0.06015658 -1.22211 0.2 -0.8601566 -1.22211 0.2 -0.06015658 0.7778905 -0.2 -0.8601566 0.7778905 -0.2 -0.06015658 0.7778905 0.2 -0.8601566 0.7778905 0.2 -0.06015658 -1.222109 -0.3 0.6222335 -1.222109 0.3 0.6222335 1.77789 0.3 0.6222335 1.77789 -0.3 0.6222335</float_array>
+        <source id="Plane-mesh-positions">
+          <float_array id="Plane-mesh-positions-array" count="12">-1 -1 0 1 -1 0 -1 1 0 1 1 0</float_array>
           <technique_common>
-            <accessor source="#Cube_004-mesh-positions-array" count="12" stride="3">
+            <accessor source="#Plane-mesh-positions-array" count="4" stride="3">
               <param name="X" type="float"/>
               <param name="Y" type="float"/>
               <param name="Z" type="float"/>
             </accessor>
           </technique_common>
         </source>
-        <source id="Cube_004-mesh-normals">
-          <float_array id="Cube_004-mesh-normals-array" count="42">-1 0 0 0 1 0 1 0 0 0 -1 0 0 0 -1 0.5636593 0 -0.8260074 0 0 1 -1 0 1.74694e-7 0 -0.9894323 -0.1449952 0 0.9894324 -0.1449952 0.5636594 0 -0.8260074 -1 0 1.74694e-7 0 -0.9894324 -0.1449952 0 0.9894323 -0.1449952</float_array>
+        <source id="Plane-mesh-normals">
+          <float_array id="Plane-mesh-normals-array" count="3">0 0 1</float_array>
           <technique_common>
-            <accessor source="#Cube_004-mesh-normals-array" count="14" stride="3">
+            <accessor source="#Plane-mesh-normals-array" count="1" stride="3">
               <param name="X" type="float"/>
               <param name="Y" type="float"/>
               <param name="Z" type="float"/>
             </accessor>
           </technique_common>
         </source>
-        <source id="Cube_004-mesh-map-0">
-          <float_array id="Cube_004-mesh-map-0-array" count="120">0.625 0 0.375 0.25 0.375 0 0.625 0.25 0.375 0.5 0.375 0.25 0.625 0.5 0.375 0.75 0.375 0.5 0.625 0.75 0.375 1 0.375 0.75 0.375 0.5 0.125 0.75 0.125 0.5 0.625 0.5 0.625 0.75 0.625 0.75 0.875 0.5 0.625 0.75 0.625 0.5 0.625 0 0.625 0.25 0.625 0.25 0.625 0.75 0.625 1 0.625 1 0.625 0.5 0.625 0.25 0.625 0.5 0.625 0 0.625 0.25 0.375 0.25 0.625 0.25 0.625 0.5 0.375 0.5 0.625 0.5 0.625 0.75 0.375 0.75 0.625 0.75 0.625 1 0.375 1 0.375 0.5 0.375 0.75 0.125 0.75 0.625 0.5 0.625 0.5 0.625 0.75 0.875 0.5 0.875 0.75 0.625 0.75 0.625 0 0.625 0 0.625 0.25 0.625 0.75 0.625 0.75 0.625 1 0.625 0.5 0.625 0.25 0.625 0.25</float_array>
+        <source id="Plane-mesh-map-0">
+          <float_array id="Plane-mesh-map-0-array" count="12">1 0 0 1 0 0 1 0 1 1 0 1</float_array>
           <technique_common>
-            <accessor source="#Cube_004-mesh-map-0-array" count="60" stride="2">
+            <accessor source="#Plane-mesh-map-0-array" count="6" stride="2">
               <param name="S" type="float"/>
               <param name="T" type="float"/>
             </accessor>
           </technique_common>
         </source>
-        <vertices id="Cube_004-mesh-vertices">
-          <input semantic="POSITION" source="#Cube_004-mesh-positions"/>
+        <source id="Plane-mesh-colors-Col" name="Col">
+          <float_array id="Plane-mesh-colors-Col-array" count="24">0.4549019 0.7764706 0.2980392 1 0.4549019 0.7764706 0.2980392 1 0.2941176 0.1058824 0.7647059 1 0.4549019 0.7764706 0.2980392 1 1 0.2901961 0.2901961 1 0.4549019 0.7764706 0.2980392 1</float_array>
+          <technique_common>
+            <accessor source="#Plane-mesh-colors-Col-array" count="6" stride="4">
+              <param name="R" type="float"/>
+              <param name="G" type="float"/>
+              <param name="B" type="float"/>
+              <param name="A" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <vertices id="Plane-mesh-vertices">
+          <input semantic="POSITION" source="#Plane-mesh-positions"/>
         </vertices>
-        <triangles count="20">
-          <input semantic="VERTEX" source="#Cube_004-mesh-vertices" offset="0"/>
-          <input semantic="NORMAL" source="#Cube_004-mesh-normals" offset="1"/>
-          <input semantic="TEXCOORD" source="#Cube_004-mesh-map-0" offset="2" set="0"/>
-          <p>1 0 0 2 0 1 0 0 2 3 1 3 6 1 4 2 1 5 7 2 6 4 2 7 6 2 8 5 3 9 0 3 10 4 3 11 6 4 12 0 4 13 2 4 14 7 5 15 11 5 16 5 5 17 9 6 18 11 6 19 10 6 20 1 7 21 9 7 22 3 7 23 5 8 24 8 8 25 1 8 26 7 9 27 9 9 28 10 9 29 1 0 30 3 0 31 2 0 32 3 1 33 7 1 34 6 1 35 7 2 36 5 2 37 4 2 38 5 3 39 1 3 40 0 3 41 6 4 42 4 4 43 0 4 44 7 10 45 10 10 46 11 10 47 9 6 48 8 6 49 11 6 50 1 11 51 8 11 52 9 11 53 5 12 54 11 12 55 8 12 56 7 13 57 3 13 58 9 13 59</p>
+        <triangles count="2">
+          <input semantic="VERTEX" source="#Plane-mesh-vertices" offset="0"/>
+          <input semantic="NORMAL" source="#Plane-mesh-normals" offset="1"/>
+          <input semantic="TEXCOORD" source="#Plane-mesh-map-0" offset="2" set="0"/>
+          <input semantic="COLOR" source="#Plane-mesh-colors-Col" offset="3" set="0"/>
+          <p>1 0 0 0 2 0 1 1 0 0 2 2 1 0 3 3 3 0 4 4 2 0 5 5</p>
         </triangles>
       </mesh>
     </geometry>
   </library_geometries>
-  <library_controllers/>
+  <library_visual_scenes>
+    <visual_scene id="Scene" name="Scene">
+      <node id="Plane" name="Plane" type="NODE">
+        <matrix sid="transform">21.93946 0 0 0 0 21.93946 0 0 0 0 21.93946 0 0 0 0 1</matrix>
+        <instance_geometry url="#Plane-mesh" name="Plane"/>
+      </node>
+    </visual_scene>
+  </library_visual_scenes>
+  <scene>
+    <instance_visual_scene url="#Scene"/>
+  </scene>
 </COLLADA>
         "##;
 

@@ -8,7 +8,7 @@ layout(set = 0, binding = 1) uniform View {
 layout(push_constant) uniform Model {
     mat4 model;
     mat3 inverse_normal;
-    uint tex_index;
+    uint tex_indices;
 };
 
 layout(set = 0, binding = 2) uniform sampler sampler0;
@@ -21,6 +21,7 @@ layout(set = 1, binding = 3) uniform texture2D normal_map[256];
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 tex_coord;
+layout(location = 3) in vec4 color;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec4 out_bloom;
@@ -129,12 +130,17 @@ const PointLight POINT_LIGHTS[4] = {
 };
 
 void main() {
+    uint diffuse_index = tex_indices & 0x000000FF;
+    uint specular_index = tex_indices & 0x0000FF00 >> 8;
+    uint emissive_index = tex_indices & 0x00FF0000 >> 16;
+    uint normal_index = tex_indices & 0xFF000000 >> 24;
+
     // gamma-corrected sampled diffuse
-    vec3 diffuse_sample = pow(texture(sampler2D(diffuse_map[tex_index], sampler0), tex_coord).rgb, vec3(GAMMA));
-    float specular_sample = texture(sampler2D(specular_map[tex_index], sampler0), tex_coord).r;
-    float emissive_sample = texture(sampler2D(emissive_map[tex_index], sampler0), tex_coord).r;
+    vec3 diffuse_sample = pow(texture(sampler2D(diffuse_map[diffuse_index], sampler0), tex_coord).rgb * color.rgb, vec3(GAMMA));
+    float specular_sample = texture(sampler2D(specular_map[specular_index], sampler0), tex_coord).r;
+    float emissive_sample = texture(sampler2D(emissive_map[emissive_index], sampler0), tex_coord).r;
     // convert normal to [-1.0, 1.0]
-    vec3 normal_sample = (texture(sampler2D(normal_map[tex_index], sampler0), tex_coord).rgb * vec3(2.0)) - vec3(1.0);
+    vec3 normal_sample = (texture(sampler2D(normal_map[normal_index], sampler0), tex_coord).rgb * vec3(2.0)) - vec3(1.0);
 
     // TODO: perterb normal
     vec3 norm = normalize(normal);
@@ -151,7 +157,7 @@ void main() {
     emissive *= 1.0 / (distance * distance);
     result += emissive;
 
-    out_color = vec4(result, 1.0);
+    out_color = vec4(result, color.a);
 
     // Compute the bloom
     float brightness = dot(result, vec3(0.2126, 0.7152, 0.0722));

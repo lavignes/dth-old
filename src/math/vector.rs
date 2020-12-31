@@ -468,6 +468,11 @@ impl Vector4 {
     }
 
     #[inline]
+    pub const fn splat(f: f32) -> Vector4 {
+        Vector4([f, f, f, f])
+    }
+
+    #[inline]
     pub fn x(&self) -> f32 {
         self.0[0]
     }

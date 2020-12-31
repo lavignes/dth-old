@@ -1,7 +1,7 @@
 use crate::{
     collections::CubeMap16,
     math::Vector3,
-    tile::{TileId, TileState},
+    voxel::tile::{TileId, TileState},
 };
 use std::iter::FromIterator;
 

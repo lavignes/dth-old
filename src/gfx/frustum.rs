@@ -17,6 +17,7 @@ pub struct Frustum {
     // AFAICT it is y-distance a sphere must be at a given point along the "camera"'s z-axis to be
     // considered in the frustum. (i.e. it tests if a sphere is inside the top and bottom
     // planes of the frustum) Using the aspect-ratio, we calculate it once.
+    // It is constant since the slope is constant.
     sphere_factor: Vector2,
 
     tan_fov: f32,

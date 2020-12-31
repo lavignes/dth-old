@@ -264,10 +264,23 @@ impl GaussianBlur {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
+struct TextureIndices {
+    diffuse: u8,
+    specular: u8,
+    emissive: u8,
+    normal: u8,
+}
+
+unsafe impl bytemuck::Zeroable for TextureIndices {}
+
+unsafe impl bytemuck::Pod for TextureIndices {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug)]
 struct StaticMaterialMeshModel {
     model: Matrix4,
     inverse_normal: Matrix3,
-    tex_index: u32,
+    tex_indices: TextureIndices,
 }
 
 unsafe impl bytemuck::Zeroable for StaticMaterialMeshModel {}
@@ -763,7 +776,7 @@ fn main_real() -> Result<(), BoxedError> {
             vertex_buffers: &[VertexBufferDescriptor {
                 stride: mem::size_of::<StaticMaterialVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float3, 2 => Float2, 3 => Uint],
+                attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float3, 2 => Float2, 3 => Float4],
             }],
         },
         sample_count: 1,

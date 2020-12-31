@@ -1,4 +1,4 @@
-use crate::math::{Vector2, Vector3};
+use crate::math::{Vector2, Vector3, Vector4};
 
 // TODO: Animated mesh?
 // #[derive(Debug, Default)]
@@ -20,15 +20,22 @@ pub struct StaticMaterialVertex {
     position: Vector3,
     normal: Vector3,
     tex_coord: Vector2,
+    color: Vector4,
 }
 
 impl StaticMaterialVertex {
     #[inline]
-    pub fn new(position: Vector3, normal: Vector3, tex_coord: Vector2) -> StaticMaterialVertex {
+    pub fn new(
+        position: Vector3,
+        normal: Vector3,
+        tex_coord: Vector2,
+        color: Vector4,
+    ) -> StaticMaterialVertex {
         StaticMaterialVertex {
             position,
             normal,
             tex_coord,
+            color,
         }
     }
 }

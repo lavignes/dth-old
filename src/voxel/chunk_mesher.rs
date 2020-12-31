@@ -1,6 +1,6 @@
 use crate::{
     math::Vector3,
-    tile::{TileFace, TileState},
+    voxel::tile::{TileFace, TileState},
     voxel::Chunk,
 };
 use std::time::Instant;
