@@ -12,6 +12,7 @@ unsafe impl bytemuck::Zeroable for Quaternion {}
 
 unsafe impl bytemuck::Pod for Quaternion {}
 
+/// Think of it like a unit vector with a 4th "twist" component.
 impl Quaternion {
     #[inline]
     pub const fn identity() -> Quaternion {
@@ -23,7 +24,7 @@ impl Quaternion {
         let half_theta = angle / 2.0;
         let sin_half_theta = half_theta.sin();
         let cos_half_theta = half_theta.cos();
-        Quaternion((axis * sin_half_theta).widen(cos_half_theta))
+        Quaternion((axis * sin_half_theta).widened(cos_half_theta))
     }
 
     #[inline]

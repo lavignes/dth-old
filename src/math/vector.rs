@@ -41,7 +41,7 @@ impl Vector2 {
     }
 
     #[inline]
-    pub fn widen(&self, z: f32) -> Vector3 {
+    pub fn widened(&self, z: f32) -> Vector3 {
         Vector3([self.0[0], self.0[1], z])
     }
 
@@ -262,17 +262,17 @@ impl Vector3 {
     }
 
     #[inline]
-    pub fn widen(&self, w: f32) -> Vector4 {
+    pub fn widened(&self, w: f32) -> Vector4 {
         Vector4([self.0[0], self.0[1], self.0[2], w])
     }
 
     #[inline]
     pub fn length(&self) -> f32 {
-        self.squared_norm().sqrt()
+        self.squared_normal().sqrt()
     }
 
     #[inline]
-    pub fn squared_norm(&self) -> f32 {
+    pub fn squared_normal(&self) -> f32 {
         self.dot(*self)
     }
 
@@ -292,7 +292,7 @@ impl Vector3 {
 
     #[inline]
     pub fn rotated(&self, rotation: Quaternion) -> Vector3 {
-        (rotation * *self * rotation.conjugated()).0.narrow()
+        (rotation * *self * rotation.conjugated()).0.narrowed()
     }
 
     #[inline]
@@ -514,11 +514,11 @@ impl Vector4 {
 
     #[inline]
     pub fn length(&self) -> f32 {
-        self.squared_norm().sqrt()
+        self.squared_normal().sqrt()
     }
 
     #[inline]
-    pub fn squared_norm(&self) -> f32 {
+    pub fn squared_normal(&self) -> f32 {
         self.dot(*self)
     }
 
@@ -528,7 +528,7 @@ impl Vector4 {
     }
 
     #[inline]
-    pub fn narrow(&self) -> Vector3 {
+    pub fn narrowed(&self) -> Vector3 {
         Vector3([self.0[0], self.0[1], self.0[2]])
     }
 

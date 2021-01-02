@@ -1,6 +1,10 @@
 use crate::collections::{PackedIntVec, PackedIntVecIterator};
 use std::{hash::Hash, iter::FromIterator};
 
+/// A compressed vec-like collection of `T`.
+///
+/// Conceptually, a `PaletteVec` is a list of unique elements called a "palette"
+/// and a list of indices that point to elements in the palette.
 #[derive(Debug)]
 pub struct PaletteVec<T>
 where
@@ -10,10 +14,6 @@ where
     indices: PackedIntVec,
 }
 
-/// A compressed vec-like collection of `T`.
-///
-/// Conceptually, a `PaletteVec` is a list of unique elements called a "palette"
-/// and a list of indices that point to elements in the palette.
 impl<T> PaletteVec<T>
 where
     T: Eq + Default + Hash + Clone,

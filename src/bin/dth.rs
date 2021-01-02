@@ -334,7 +334,8 @@ const OUTPUT_TARGET_VERTICES: [OutputTargetVertex; 6] = [
 
 #[inline]
 fn compute_projection(projection: &PerspectiveProjection) -> Projection {
-    Projection(&Matrix4::perspective(projection) * &Matrix4::vulkan_projection_correct())
+    let projection_matrix: Matrix4 = projection.into();
+    Projection(&projection_matrix * &Matrix4::vulkan_projection_correct())
 }
 
 #[inline]
@@ -1007,7 +1008,7 @@ fn main_real() -> Result<(), BoxedError> {
 
         let matrix = (&*transform).into();
         model.model = matrix;
-        model.inverse_normal = matrix.inversed().transposed().narrow();
+        model.inverse_normal = matrix.inversed().transposed().narrowed();
     }
 
     let mut bmp_reader = BitmapReader::default();
@@ -1172,7 +1173,7 @@ fn main_real() -> Result<(), BoxedError> {
 
                 let matrix = (&*transform).into();
                 model.model = matrix;
-                model.inverse_normal = matrix.inversed().transposed().narrow();
+                model.inverse_normal = matrix.inversed().transposed().narrowed();
             }
         }
 
@@ -1260,7 +1261,7 @@ fn main_real() -> Result<(), BoxedError> {
             render_pass.set_bind_group(1, &static_material_texture_bind_group, &[]);
 
             for cube_model in &cube_models {
-                if !frustum.sphere_inside(cube_model.model[3].narrow(), 2.0) {
+                if !frustum.sphere_inside(cube_model.model[3].narrowed(), 2.0) {
                     continue;
                 }
                 render_pass.set_push_constants(

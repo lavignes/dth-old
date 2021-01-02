@@ -1,6 +1,5 @@
 use crate::math::{Quaternion, Vector3, Vector4};
 
-use crate::gfx::PerspectiveProjection;
 use std::ops::{Index, IndexMut, Mul};
 
 #[repr(C)]
@@ -86,23 +85,6 @@ impl Matrix4 {
             Vector4([sin_theta, cos_theta, 0.0, 0.0]),
             Vector4([0.0, 0.0, 1.0, 0.0]),
             Vector4([0.0, 0.0, 0.0, 1.0]),
-        ])
-    }
-
-    #[inline]
-    pub fn perspective(projection: &PerspectiveProjection) -> Matrix4 {
-        let depth = projection.near - projection.far;
-        let tan_fov = (projection.fov / 2.0).tan();
-        Matrix4([
-            Vector4([1.0 / (tan_fov * projection.aspect_ratio), 0.0, 0.0, 0.0]),
-            Vector4([0.0, 1.0 / tan_fov, 0.0, 0.0]),
-            Vector4([0.0, 0.0, (projection.near + projection.far) / depth, -1.0]),
-            Vector4([
-                0.0,
-                0.0,
-                (2.0 * projection.far * projection.near) / depth,
-                0.0,
-            ]),
         ])
     }
 
@@ -222,8 +204,12 @@ impl Matrix4 {
     }
 
     #[inline]
-    pub fn narrow(&self) -> Matrix3 {
-        Matrix3([self.0[0].narrow(), self.0[1].narrow(), self.0[2].narrow()])
+    pub fn narrowed(&self) -> Matrix3 {
+        Matrix3([
+            self.0[0].narrowed(),
+            self.0[1].narrowed(),
+            self.0[2].narrowed(),
+        ])
     }
 
     #[inline]

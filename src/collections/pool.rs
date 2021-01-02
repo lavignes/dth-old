@@ -3,11 +3,20 @@ use std::{
     slice::{Iter, IterMut},
 };
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct Handle<T> {
     index: usize,
     epoch: usize,
     marker: PhantomData<T>,
+}
+
+// FIXME: https://github.com/rust-lang/rust/issues/26925
+impl<T> Copy for Handle<T> {}
+
+impl<T> Clone for Handle<T> {
+    fn clone(&self) -> Handle<T> {
+        *self
+    }
 }
 
 #[derive(Debug)]
@@ -23,28 +32,44 @@ pub struct Pool<T> {
 }
 
 impl<T> Pool<T> {
-    #[inline]
     pub fn register(&mut self, data: T) -> Handle<T> {
+        self.register_with_callback(data, |_, _| {})
+    }
+
+    /// Register data into the pool but execute a callback function
+    /// once the handle has been found. This lets you store the handle
+    /// back into the data itself if necessary.
+    pub fn register_with_callback<F: Fn(&mut T, Handle<T>)>(
+        &mut self,
+        data: T,
+        callback: F,
+    ) -> Handle<T> {
         if let Some(index) = self.free_list.pop() {
             let entry = self.entries.get_mut(index).unwrap();
             entry.epoch += 1;
-            entry.data.replace(data);
-            Handle {
+            let handle = Handle {
                 index,
                 epoch: entry.epoch,
                 marker: PhantomData,
-            }
+            };
+            let mut data = data;
+            callback(&mut data, handle);
+            entry.data.replace(data);
+            handle
         } else {
             let index = self.entries.len();
+            let handle = Handle {
+                index,
+                epoch: 1,
+                marker: PhantomData,
+            };
+            let mut data = data;
+            callback(&mut data, handle);
             self.entries.push(Entry {
                 epoch: 1,
                 data: Some(data),
             });
-            Handle {
-                index,
-                epoch: 1,
-                marker: PhantomData,
-            }
+            handle
         }
     }
 
@@ -53,7 +78,6 @@ impl<T> Pool<T> {
         self.try_remove(handle).unwrap()
     }
 
-    #[inline]
     pub fn try_remove(&mut self, handle: Handle<T>) -> Option<T> {
         if let Some(entry) = self.entries.get_mut(handle.index) {
             if entry.epoch != handle.epoch || entry.data.is_none() {
@@ -71,7 +95,6 @@ impl<T> Pool<T> {
         self.try_get(handle).unwrap()
     }
 
-    #[inline]
     pub fn try_get(&self, handle: Handle<T>) -> Option<&T> {
         self.entries
             .get(handle.index)
@@ -90,7 +113,6 @@ impl<T> Pool<T> {
         self.try_get_mut(handle).unwrap()
     }
 
-    #[inline]
     pub fn try_get_mut(&mut self, handle: Handle<T>) -> Option<&mut T> {
         self.entries
             .get_mut(handle.index)
@@ -107,6 +129,7 @@ impl<T> Pool<T> {
     #[inline]
     pub fn get_mut_2(&mut self, handles: (Handle<T>, Handle<T>)) -> (&mut T, &mut T) {
         assert_ne!(handles.0.index, handles.1.index);
+        // Safety: The lifetime of all output T are the same as self.
         unsafe {
             let s = self as *mut Self;
             (
@@ -124,6 +147,7 @@ impl<T> Pool<T> {
         assert_ne!(handles.0.index, handles.1.index);
         assert_ne!(handles.0.index, handles.2.index);
         assert_ne!(handles.1.index, handles.2.index);
+        // Safety: The lifetime of all output T are the same as self.
         unsafe {
             let s = self as *mut Self;
             (
@@ -145,6 +169,7 @@ impl<T> Pool<T> {
         assert_ne!(handles.1.index, handles.2.index);
         assert_ne!(handles.1.index, handles.3.index);
         assert_ne!(handles.2.index, handles.3.index);
+        // Safety: The lifetime of all output T are the same as self.
         unsafe {
             let s = self as *mut Self;
             (
