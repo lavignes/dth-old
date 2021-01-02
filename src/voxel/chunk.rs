@@ -49,7 +49,7 @@ impl ChunkSection {
         ];
         ChunkSection {
             cube: Some(CubeMap16::from_iter((0..(16 * 16 * 16)).map(|_| {
-                TileState::new(TileId(distr[rng.gen_range(0, distr.len())]))
+                TileState::new(TileId(distr[rng.gen_range(0..distr.len())]))
             }))),
         }
     }
@@ -75,7 +75,7 @@ impl ChunkSection {
         for index in 0..((16 * 16 * 16) as usize) {
             self.cube_mut().set(
                 index.into(),
-                TileState::new(TileId(distr[rng.gen_range(0, distr.len())])),
+                TileState::new(TileId(distr[rng.gen_range(0..distr.len())])),
             )
         }
     }

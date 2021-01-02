@@ -995,14 +995,14 @@ fn main_real() -> Result<(), BoxedError> {
     for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
         *transform = transform.concat(&Transform {
             position: (
-                rng.gen_range(-24.0, 24.0),
-                rng.gen_range(-24.0, 24.0),
-                rng.gen_range(-24.0, 24.0),
+                rng.gen_range(-24.0..24.0),
+                rng.gen_range(-24.0..24.0),
+                rng.gen_range(-24.0..24.0),
             )
                 .into(),
-            rotation: Quaternion::from_angle_up(rng.gen_range(0.0, math::TAU))
-                * Quaternion::from_angle_right(rng.gen_range(0.0, math::TAU))
-                * Quaternion::from_angle_forward(rng.gen_range(0.0, math::TAU)),
+            rotation: Quaternion::from_angle_up(rng.gen_range(0.0..math::TAU))
+                * Quaternion::from_angle_right(rng.gen_range(0.0..math::TAU))
+                * Quaternion::from_angle_forward(rng.gen_range(0.0..math::TAU)),
             ..Transform::default()
         });
 
@@ -1160,14 +1160,14 @@ fn main_real() -> Result<(), BoxedError> {
             for (model, transform) in cube_models.iter_mut().zip(cube_transforms.iter_mut()) {
                 *transform = transform.concat(&Transform {
                     position: (
-                        rng.gen_range(-0.05, 0.05),
-                        rng.gen_range(-0.05, 0.05),
-                        rng.gen_range(-0.05, 0.05),
+                        rng.gen_range(-0.05..0.05),
+                        rng.gen_range(-0.05..0.05),
+                        rng.gen_range(-0.05..0.05),
                     )
                         .into(),
-                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.05, 0.05))
-                        * Quaternion::from_angle_right(rng.gen_range(-0.05, 0.05))
-                        * Quaternion::from_angle_forward(rng.gen_range(-0.05, 0.05)),
+                    rotation: Quaternion::from_angle_up(rng.gen_range(-0.05..0.05))
+                        * Quaternion::from_angle_right(rng.gen_range(-0.05..0.05))
+                        * Quaternion::from_angle_forward(rng.gen_range(-0.05..0.05)),
                     ..Transform::default()
                 });
 

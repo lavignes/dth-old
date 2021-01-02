@@ -292,6 +292,7 @@ impl ColladaReader {
                         name, attributes, ..
                     } => match name.local_name.as_str() {
                         "input" => {
+                            // The semantic is like the type (vertex, normal, tex coord, etc).
                             let semantic = util::io_err_option(
                                 Self::find_attribute(&attributes, "semantic"),
                                 ErrorKind::InvalidData,
