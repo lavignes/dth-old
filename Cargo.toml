@@ -9,14 +9,14 @@ debug = true
 
 [dependencies]
 # Technically just the frontend-specific deps
-wgpu = { version = "0.6.2", features = ["vulkan-portability"] }
-sdl2 = { version = "0.34.3", features = ["raw-window-handle", "mixer"] }
-env_logger = "0.8.2"
+wgpu = { version = "0.7.1", features = ["vulkan-portability"] }
+sdl2 = { version = "0.34.4", features = ["raw-window-handle", "mixer"] }
+env_logger = "0.8.3"
 
 bitflags = "1.2.1"
-bytemuck = "1.4.1"
-futures = "0.3.8"
-log = "0.4.11"
-rand = "0.8.0"
-smallvec = "1.6.0"
+bytemuck = "1.5.1"
+futures = "0.3.14"
+log = "0.4.14"
+rand = "0.8.3"
+smallvec = "1.6.1"
 xml-rs = "0.8.3"

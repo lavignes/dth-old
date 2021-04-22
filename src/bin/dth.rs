@@ -5,22 +5,23 @@ use sdl2::{
     video::Window,
     Sdl,
 };
+
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     AddressMode, BackendBit, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendDescriptor,
-    BlendFactor, BlendOperation, BufferUsage, Color, ColorStateDescriptor, ColorWrite,
-    CommandEncoderDescriptor, CompareFunction, CullMode, DepthStencilStateDescriptor, Device,
-    DeviceDescriptor, Extent3d, Features, FilterMode, FrontFace, IndexFormat, InputStepMode,
-    Instance, Limits, LoadOp, Operations, Origin3d, PipelineLayoutDescriptor, PowerPreference,
-    PresentMode, PrimitiveTopology, ProgrammableStageDescriptor, PushConstantRange, Queue,
-    RasterizationStateDescriptor, RenderPassColorAttachmentDescriptor,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendFactor,
+    BlendOperation, BlendState, BufferBindingType, BufferUsage, Color, ColorTargetState,
+    ColorWrite, CommandEncoderDescriptor, CompareFunction, CullMode, DepthBiasState,
+    DepthStencilState, Device, DeviceDescriptor, Extent3d, Features, FilterMode, FragmentState,
+    FrontFace, IndexFormat, InputStepMode, Instance, Limits, LoadOp, MultisampleState, Operations,
+    Origin3d, PipelineLayoutDescriptor, PolygonMode, PowerPreference, PresentMode, PrimitiveState,
+    PrimitiveTopology, PushConstantRange, Queue, RenderPassColorAttachmentDescriptor,
     RenderPassDepthStencilAttachmentDescriptor, RenderPassDescriptor, RenderPipelineDescriptor,
-    RequestAdapterOptions, Sampler, SamplerDescriptor, ShaderModule, ShaderStage,
-    StencilStateDescriptor, StencilStateFaceDescriptor, Surface, SwapChain, SwapChainDescriptor,
-    Texture, TextureAspect, TextureComponentType, TextureCopyView, TextureDataLayout,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsage, TextureView,
-    TextureViewDescriptor, TextureViewDimension, VertexBufferDescriptor, VertexStateDescriptor,
+    RequestAdapterOptions, Sampler, SamplerDescriptor, ShaderFlags, ShaderModule,
+    ShaderModuleDescriptor, ShaderStage, StencilFaceState, StencilState, Surface, SwapChain,
+    SwapChainDescriptor, Texture, TextureAspect, TextureCopyView, TextureDataLayout,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsage,
+    TextureView, TextureViewDescriptor, TextureViewDimension, VertexBufferLayout, VertexState,
 };
 
 use dth::{
@@ -39,7 +40,6 @@ use std::{
     io::Read,
     mem,
     num::NonZeroU64,
-    panic,
     path::Path,
     time::{Duration, Instant},
 };
@@ -66,6 +66,7 @@ fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Qu
 
     let (device, queue) = executor::block_on(adapter.request_device(
         &DeviceDescriptor {
+            label: None,
             features: Features::PUSH_CONSTANTS
                 | Features::SAMPLED_TEXTURE_ARRAY_DYNAMIC_INDEXING
                 | Features::TEXTURE_COMPRESSION_BC,
@@ -73,7 +74,6 @@ fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Qu
                 max_push_constant_size: MAX_PUSH_CONSTANT_SIZE as u32,
                 ..Limits::default()
             },
-            shader_validation: true,
         },
         None,
     ))?;
@@ -142,7 +142,7 @@ impl WindowTarget {
         device.create_swap_chain(
             &surface,
             &SwapChainDescriptor {
-                usage: TextureUsage::OUTPUT_ATTACHMENT,
+                usage: TextureUsage::RENDER_ATTACHMENT,
                 format: TextureFormat::Bgra8Unorm,
                 width: size.0,
                 height: size.1,
@@ -170,7 +170,7 @@ impl WindowTarget {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba16Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
             })
             .create_view(&TextureViewDescriptor::default())
     }
@@ -188,7 +188,7 @@ impl WindowTarget {
                 sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT,
+                usage: TextureUsage::RENDER_ATTACHMENT,
             })
             .create_view(&TextureViewDescriptor {
                 aspect: TextureAspect::DepthOnly,
@@ -239,8 +239,8 @@ unsafe impl bytemuck::Pod for Exposure {}
 
 impl Exposure {
     #[inline]
-    fn to_words(&self) -> &[u32] {
-        bytemuck::cast_slice(bytemuck::bytes_of(self))
+    fn to_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -257,8 +257,8 @@ unsafe impl bytemuck::Pod for GaussianBlur {}
 
 impl GaussianBlur {
     #[inline]
-    fn to_words(&self) -> &[u32] {
-        bytemuck::cast_slice(bytemuck::bytes_of(self))
+    fn to_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -289,8 +289,8 @@ unsafe impl bytemuck::Pod for StaticMaterialMeshModel {}
 
 impl StaticMaterialMeshModel {
     #[inline]
-    fn to_words(&self) -> &[u32] {
-        bytemuck::cast_slice(bytemuck::bytes_of(self))
+    fn to_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -497,18 +497,22 @@ fn texture_format_from_bitmap_format(format: BitmapFormat) -> TextureFormat {
 fn load_shader<P: AsRef<Path>>(device: &Device, path: P) -> Result<ShaderModule, BoxedError> {
     let mut buffer = Vec::new();
     util::buf_open(path)?.read_to_end(&mut buffer)?;
-    Ok(device.create_shader_module(wgpu::util::make_spirv(buffer.as_slice())))
+    Ok(device.create_shader_module(&ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::util::make_spirv(&buffer),
+        flags: ShaderFlags::empty(),
+    }))
 }
 
-fn create_color_state(format: TextureFormat) -> ColorStateDescriptor {
-    ColorStateDescriptor {
+fn create_color_state(format: TextureFormat) -> ColorTargetState {
+    ColorTargetState {
         format,
-        color_blend: BlendDescriptor {
+        color_blend: BlendState {
             src_factor: BlendFactor::SrcAlpha,
             dst_factor: BlendFactor::OneMinusSrcAlpha,
             operation: BlendOperation::Add,
         },
-        alpha_blend: BlendDescriptor {
+        alpha_blend: BlendState {
             src_factor: BlendFactor::One,
             dst_factor: BlendFactor::OneMinusSrcAlpha,
             operation: BlendOperation::Add,
@@ -613,8 +617,9 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: NonZeroU64::new(mem::size_of::<Projection>() as u64),
                     },
                     count: None,
@@ -623,8 +628,9 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: NonZeroU64::new(mem::size_of::<View>() as u64),
                     },
                     count: None,
@@ -633,7 +639,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: false,
+                    },
                     count: None,
                 },
             ],
@@ -647,10 +656,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -658,10 +667,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -669,10 +678,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -680,10 +689,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -700,6 +709,7 @@ fn main_real() -> Result<(), BoxedError> {
         mipmap_filter: FilterMode::Linear,
         lod_min_clamp: 0.0,
         lod_max_clamp: 1.0,
+        border_color: None,
         compare: None,
         anisotropy_clamp: None,
     });
@@ -710,11 +720,19 @@ fn main_real() -> Result<(), BoxedError> {
         entries: &[
             BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::Buffer(projection_buffer.slice(..)),
+                resource: BindingResource::Buffer {
+                    buffer: &projection_buffer,
+                    offset: 0,
+                    size: None,
+                },
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::Buffer(view_buffer.slice(..)),
+                resource: BindingResource::Buffer {
+                    buffer: &view_buffer,
+                    offset: 0,
+                    size: None,
+                },
             },
             BindGroupEntry {
                 binding: 2,
@@ -739,50 +757,52 @@ fn main_real() -> Result<(), BoxedError> {
     let static_material_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
         label: None,
         layout: Some(&static_material_pipeline_layout),
-        vertex_stage: ProgrammableStageDescriptor {
+        vertex: VertexState {
             module: &static_material_vs,
             entry_point: "main",
-        },
-        fragment_stage: Some(ProgrammableStageDescriptor {
-            module: &static_material_fs,
-            entry_point: "main",
-        }),
-        rasterization_state: Some(RasterizationStateDescriptor {
-            front_face: FrontFace::Cw,
-            cull_mode: CullMode::Back,
-            clamp_depth: false,
-            depth_bias: 0,
-            depth_bias_slope_scale: 0.0,
-            depth_bias_clamp: 0.0,
-        }),
-        primitive_topology: PrimitiveTopology::TriangleList,
-        // primitive_topology: PrimitiveTopology::LineList,
-        color_states: &[
-            create_color_state(TextureFormat::Rgba16Float),
-            create_color_state(TextureFormat::Rgba16Float),
-        ],
-        depth_stencil_state: Some(DepthStencilStateDescriptor {
-            format: TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::Less,
-            stencil: StencilStateDescriptor {
-                front: StencilStateFaceDescriptor::IGNORE,
-                back: StencilStateFaceDescriptor::IGNORE,
-                read_mask: 0,
-                write_mask: 0,
-            },
-        }),
-        vertex_state: VertexStateDescriptor {
-            index_format: IndexFormat::Uint32,
-            vertex_buffers: &[VertexBufferDescriptor {
-                stride: mem::size_of::<StaticMaterialVertex>() as u64,
+            buffers: &[VertexBufferLayout {
+                array_stride: mem::size_of::<StaticMaterialVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float3, 2 => Float2, 3 => Float4],
             }],
         },
-        sample_count: 1,
-        sample_mask: !0,
-        alpha_to_coverage_enabled: false,
+        primitive: PrimitiveState {
+            topology: PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: FrontFace::Cw,
+            cull_mode: CullMode::Back,
+            polygon_mode: PolygonMode::Fill,
+        },
+        depth_stencil: Some(DepthStencilState {
+            format: TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: CompareFunction::Less,
+            stencil: StencilState {
+                front: StencilFaceState::IGNORE,
+                back: StencilFaceState::IGNORE,
+                read_mask: 0,
+                write_mask: 0,
+            },
+            bias: DepthBiasState {
+                constant: 0,
+                slope_scale: 0.0,
+                clamp: 0.0,
+            },
+            clamp_depth: false,
+        }),
+        multisample: MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(FragmentState {
+            module: &static_material_fs,
+            entry_point: "main",
+            targets: &[
+                create_color_state(TextureFormat::Rgba16Float),
+                create_color_state(TextureFormat::Rgba16Float),
+            ]
+        }),
     });
 
     let blur_vs = load_shader(&device, "res/shaders/blur.vert.glsl.spv")?;
@@ -796,17 +816,20 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: false,
+                    },
                     count: None,
                 },
                 // image
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -825,36 +848,33 @@ fn main_real() -> Result<(), BoxedError> {
     let blur_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
         label: None,
         layout: Some(&blur_pipeline_layout),
-        vertex_stage: ProgrammableStageDescriptor {
+        vertex: VertexState {
             module: &blur_vs,
             entry_point: "main",
-        },
-        fragment_stage: Some(ProgrammableStageDescriptor {
-            module: &blur_fs,
-            entry_point: "main",
-        }),
-        rasterization_state: Some(RasterizationStateDescriptor {
-            front_face: FrontFace::Cw,
-            cull_mode: CullMode::Back,
-            clamp_depth: false,
-            depth_bias: 0,
-            depth_bias_slope_scale: 0.0,
-            depth_bias_clamp: 0.0,
-        }),
-        primitive_topology: PrimitiveTopology::TriangleList,
-        color_states: &[create_color_state(TextureFormat::Rgba16Float)],
-        depth_stencil_state: None,
-        vertex_state: VertexStateDescriptor {
-            index_format: IndexFormat::Uint32,
-            vertex_buffers: &[VertexBufferDescriptor {
-                stride: mem::size_of::<OutputTargetVertex>() as u64,
+            buffers: &[VertexBufferLayout {
+                array_stride: mem::size_of::<OutputTargetVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float2],
             }],
         },
-        sample_count: 1,
-        sample_mask: !0,
-        alpha_to_coverage_enabled: false,
+        primitive: PrimitiveState {
+            topology: PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: FrontFace::Cw,
+            cull_mode: CullMode::Back,
+            polygon_mode: PolygonMode::Fill,
+        },
+        depth_stencil: None,
+        multisample: MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(FragmentState {
+            module: &blur_fs,
+            entry_point: "main",
+            targets: &[create_color_state(TextureFormat::Rgba16Float)],
+        }),
     });
 
     let hdr_vs = load_shader(&device, "res/shaders/hdr.vert.glsl.spv")?;
@@ -868,17 +888,20 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: false,
+                    },
                     count: None,
                 },
                 // hdr_buffer
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -886,10 +909,10 @@ fn main_real() -> Result<(), BoxedError> {
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::SampledTexture {
+                    ty: BindingType::Texture {
                         multisampled: false,
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: false },
                     },
                     count: None,
                 },
@@ -908,36 +931,33 @@ fn main_real() -> Result<(), BoxedError> {
     let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
         label: None,
         layout: Some(&output_pipeline_layout),
-        vertex_stage: ProgrammableStageDescriptor {
+        vertex: VertexState {
             module: &hdr_vs,
             entry_point: "main",
-        },
-        fragment_stage: Some(ProgrammableStageDescriptor {
-            module: &hdr_fs,
-            entry_point: "main",
-        }),
-        rasterization_state: Some(RasterizationStateDescriptor {
-            front_face: FrontFace::Cw,
-            cull_mode: CullMode::Back,
-            clamp_depth: false,
-            depth_bias: 0,
-            depth_bias_slope_scale: 0.0,
-            depth_bias_clamp: 0.0,
-        }),
-        primitive_topology: PrimitiveTopology::TriangleList,
-        color_states: &[create_color_state(TextureFormat::Bgra8Unorm)],
-        depth_stencil_state: None,
-        vertex_state: VertexStateDescriptor {
-            index_format: IndexFormat::Uint32,
-            vertex_buffers: &[VertexBufferDescriptor {
-                stride: mem::size_of::<OutputTargetVertex>() as u64,
+            buffers: &[VertexBufferLayout {
+                array_stride: mem::size_of::<OutputTargetVertex>() as u64,
                 step_mode: InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float3, 1 => Float2],
             }],
         },
-        sample_count: 1,
-        sample_mask: !0,
-        alpha_to_coverage_enabled: false,
+        primitive: PrimitiveState {
+            topology: PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: FrontFace::Cw,
+            cull_mode: CullMode::Back,
+            polygon_mode: PolygonMode::Fill,
+        },
+        depth_stencil: None,
+        multisample: MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(FragmentState {
+            module: &hdr_fs,
+            entry_point: "main",
+            targets: &[create_color_state(TextureFormat::Bgra8Unorm)],
+        }),
     });
 
     let mut blur_primary_bind_groups = [
@@ -971,10 +991,7 @@ fn main_real() -> Result<(), BoxedError> {
 
     let mut collada = ColladaReader::default();
     let mut cube_mesh = StaticMaterialMesh::default();
-    collada.read_into(
-        &mut util::buf_open("res/models/frigate.dae")?,
-        &mut cube_mesh,
-    )?;
+    collada.read_into(&mut util::buf_open("res/models/cube.dae")?, &mut cube_mesh)?;
 
     let cube_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
@@ -1228,6 +1245,7 @@ fn main_real() -> Result<(), BoxedError> {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
                         attachment: &target.hdr_buffer,
@@ -1267,10 +1285,10 @@ fn main_real() -> Result<(), BoxedError> {
                 render_pass.set_push_constants(
                     ShaderStage::VERTEX | ShaderStage::FRAGMENT,
                     0,
-                    cube_model.to_words(),
+                    cube_model.to_bytes(),
                 );
                 render_pass.set_vertex_buffer(0, cube_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(cube_index_buffer.slice(..));
+                render_pass.set_index_buffer(cube_index_buffer.slice(..), IndexFormat::Uint32);
                 render_pass.draw_indexed(0..cube_mesh.indices().len() as u32, 0, 0..1);
             }
         }
@@ -1279,6 +1297,7 @@ fn main_real() -> Result<(), BoxedError> {
         // Bounces "back and forth" blurring the bloom buffer inside the ping-pong buffers
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &target.ping_pong_buffers[0],
                     resolve_target: None,
@@ -1298,7 +1317,7 @@ fn main_real() -> Result<(), BoxedError> {
                     horizontal: 0,
                     weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
                 }
-                .to_words(),
+                .to_bytes(),
             );
             render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
             render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
@@ -1308,6 +1327,7 @@ fn main_real() -> Result<(), BoxedError> {
             let dst_index = i % 2;
             let src_index = ((i - 1) % 2) + 1;
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &target.ping_pong_buffers[dst_index],
                     resolve_target: None,
@@ -1327,7 +1347,7 @@ fn main_real() -> Result<(), BoxedError> {
                     horizontal: ((i + 1) % 2) as u32,
                     weights: [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216],
                 }
-                .to_words(),
+                .to_bytes(),
             );
             render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
             render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
@@ -1339,6 +1359,7 @@ fn main_real() -> Result<(), BoxedError> {
         // Final Pass: Merge the HDR and blur buffer
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &current_frame.output.view,
                     resolve_target: None,
@@ -1352,7 +1373,7 @@ fn main_real() -> Result<(), BoxedError> {
 
             render_pass.set_pipeline(&output_pipeline);
             render_pass.set_bind_group(0, &output_primary_bind_group, &[]);
-            render_pass.set_push_constants(ShaderStage::FRAGMENT, 0, Exposure(0.8).to_words());
+            render_pass.set_push_constants(ShaderStage::FRAGMENT, 0, Exposure(0.8).to_bytes());
             render_pass.set_vertex_buffer(0, output_target_vertex_buffer.slice(..));
             render_pass.draw(0..OUTPUT_TARGET_VERTICES.len() as u32, 0..1);
         }
