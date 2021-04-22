@@ -47,6 +47,7 @@ use std::{
 /// The smallest possible push-constant buffer size (in bytes) according to WGPU docs.
 /// This is the lower limit for push-constants on Vulkan.
 const MAX_PUSH_CONSTANT_SIZE: usize = 128;
+const PUSH_CONSTANT_ALIGNMENT: usize = wgpu::PUSH_CONSTANT_ALIGNMENT as usize;
 
 fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Queue), BoxedError> {
     let sdl_video = sdl.video()?;
@@ -1394,6 +1395,14 @@ fn main_real() -> Result<(), BoxedError> {
 
 fn main() -> Result<(), BoxedError> {
     assert!(mem::size_of::<StaticMaterialMeshModel>() <= MAX_PUSH_CONSTANT_SIZE);
+    assert_eq!(PUSH_CONSTANT_ALIGNMENT, mem::align_of::<Projection>());
+    assert_eq!(PUSH_CONSTANT_ALIGNMENT, mem::align_of::<View>());
+    assert_eq!(PUSH_CONSTANT_ALIGNMENT, mem::align_of::<Exposure>());
+    assert_eq!(PUSH_CONSTANT_ALIGNMENT, mem::align_of::<GaussianBlur>());
+    assert_eq!(
+        PUSH_CONSTANT_ALIGNMENT,
+        mem::align_of::<StaticMaterialMeshModel>()
+    );
 
     env_logger::builder()
         .filter_level(LevelFilter::Error)
