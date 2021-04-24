@@ -78,6 +78,7 @@ fn setup_rendering(sdl: &Sdl, size: Vector2) -> Result<(WindowTarget, Device, Qu
         },
         None,
     ))?;
+
     Ok((
         WindowTarget::new(&device, window, surface, size.into()),
         device,
@@ -378,7 +379,7 @@ impl TextureManager {
             diffuse_maps: TextureManager::create_texture(
                 device,
                 resolution,
-                texture_format_from_bitmap_format(BitmapFormat::DXT5),
+                texture_format_from_bitmap_format(BitmapFormat::Dxt5),
                 depth,
                 8,
             ),
@@ -399,7 +400,7 @@ impl TextureManager {
             normal_maps: TextureManager::create_texture(
                 device,
                 resolution,
-                texture_format_from_bitmap_format(BitmapFormat::DXT1),
+                texture_format_from_bitmap_format(BitmapFormat::Dxt1),
                 depth,
                 8,
             ),
@@ -456,22 +457,22 @@ impl TextureManager {
         bitmap: &Bitmap,
         mip_levels: usize,
     ) {
-        for mip_level in 0..mip_levels {
-            let size = bitmap.mip_size(mip_level);
+        for (i, mip_level) in bitmap.mip_levels().take(mip_levels).enumerate() {
+            let size = mip_level.size();
             queue.write_texture(
                 TextureCopyView {
                     texture: &texture,
-                    mip_level: mip_level as u32,
+                    mip_level: i as u32,
                     origin: Origin3d {
                         x: 0,
                         y: 0,
                         z: index,
                     },
                 },
-                bitmap.mip_data(mip_level),
+                mip_level.data(),
                 TextureDataLayout {
                     offset: 0,
-                    bytes_per_row: bitmap.mip_bytes_per_row(mip_level) as u32,
+                    bytes_per_row: mip_level.bytes_per_row() as u32,
                     rows_per_image: size.y() as u32,
                 },
                 Extent3d {
@@ -489,9 +490,9 @@ fn texture_format_from_bitmap_format(format: BitmapFormat) -> TextureFormat {
     match format {
         BitmapFormat::BgraU8 => TextureFormat::Bgra8Unorm,
         BitmapFormat::GrayU8 => TextureFormat::R8Unorm,
-        BitmapFormat::DXT1 => TextureFormat::Bc1RgbaUnorm,
-        BitmapFormat::DXT3 => TextureFormat::Bc2RgbaUnorm,
-        BitmapFormat::DXT5 => TextureFormat::Bc3RgbaUnorm,
+        BitmapFormat::Dxt1 => TextureFormat::Bc1RgbaUnorm,
+        BitmapFormat::Dxt3 => TextureFormat::Bc2RgbaUnorm,
+        BitmapFormat::Dxt5 => TextureFormat::Bc3RgbaUnorm,
     }
 }
 
@@ -1018,9 +1019,9 @@ fn main_real() -> Result<(), BoxedError> {
                 rng.gen_range(-24.0..24.0),
             )
                 .into(),
-            rotation: Quaternion::from_angle_up(rng.gen_range(0.0..math::TAU))
-                * Quaternion::from_angle_right(rng.gen_range(0.0..math::TAU))
-                * Quaternion::from_angle_forward(rng.gen_range(0.0..math::TAU)),
+            rotation: Quaternion::from_angle_up(rng.gen_range(0.0..f32::consts::TAU))
+                * Quaternion::from_angle_right(rng.gen_range(0.0..f32::consts::TAU))
+                * Quaternion::from_angle_forward(rng.gen_range(0.0..f32::consts::TAU)),
             ..Transform::default()
         });
 
@@ -1118,6 +1119,7 @@ fn main_real() -> Result<(), BoxedError> {
                     Some(Keycode::D) => d = true,
                     Some(Keycode::LShift) => l_shift = true,
                     Some(Keycode::Space) => space = true,
+                    Some(Keycode::Q) => break 'running,
                     _ => (),
                 },
                 Event::KeyUp { keycode, .. } => match keycode {

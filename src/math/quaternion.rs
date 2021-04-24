@@ -1,8 +1,5 @@
 use crate::math::{Vector3, Vector4};
-use std::{
-    f32,
-    ops::{Mul, MulAssign},
-};
+use std::ops::{Mul, MulAssign};
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]

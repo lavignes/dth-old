@@ -4,14 +4,15 @@ use std::{
 };
 
 use crate::{math::Vector2, util};
+use std::slice::Iter;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BitmapFormat {
     BgraU8,
     GrayU8,
-    DXT1,
-    DXT3,
-    DXT5,
+    Dxt1,
+    Dxt3,
+    Dxt5,
 }
 
 impl BitmapFormat {}
@@ -32,6 +33,30 @@ struct MipLevel {
 }
 
 #[derive(Debug, Default)]
+pub struct MipLevelView<'a> {
+    data: &'a [u8],
+    size: Vector2,
+    bytes_per_row: usize,
+}
+
+impl<'a> MipLevelView<'a> {
+    #[inline]
+    pub fn data(&self) -> &[u8] {
+        self.data
+    }
+
+    #[inline]
+    pub fn size(&self) -> Vector2 {
+        self.size
+    }
+
+    #[inline]
+    pub fn bytes_per_row(&self) -> usize {
+        self.bytes_per_row
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Bitmap {
     format: BitmapFormat,
     data: Vec<u8>,
@@ -46,55 +71,34 @@ impl Bitmap {
     }
 
     #[inline]
-    pub fn mip_levels(&self) -> usize {
-        self.mip_levels.len()
-    }
-
-    #[inline]
-    pub fn data(&self) -> &[u8] {
-        self.mip_data(0)
-    }
-
-    #[inline]
-    pub fn data_mut(&mut self) -> &mut [u8] {
-        self.mip_data_mut(0)
-    }
-
-    #[inline]
-    pub fn mip_data(&self, mip_level: usize) -> &[u8] {
-        let mip_level = &self.mip_levels[mip_level];
-        &self.data[mip_level.start..mip_level.end]
-    }
-
-    #[inline]
-    pub fn mip_data_mut(&mut self, mip_level: usize) -> &mut [u8] {
-        let mip_level = &self.mip_levels[mip_level];
-        &mut self.data[mip_level.start..mip_level.end]
-    }
-
-    #[inline]
-    pub fn size(&self) -> Vector2 {
-        self.mip_size(0)
-    }
-
-    #[inline]
-    pub fn mip_size(&self, mip_level: usize) -> Vector2 {
-        self.mip_levels[mip_level].size
-    }
-
-    #[inline]
-    pub fn bytes_per_row(&self) -> usize {
-        self.mip_bytes_per_row(0)
-    }
-
-    #[inline]
-    pub fn mip_bytes_per_row(&self, mip_level: usize) -> usize {
-        self.mip_levels[mip_level].bytes_per_row
+    pub fn mip_levels(&self) -> MipLevelIterator {
+        MipLevelIterator {
+            inner: self.mip_levels.iter(),
+            data: &self.data,
+        }
     }
 
     #[inline]
     pub fn format(&self) -> BitmapFormat {
         self.format
+    }
+}
+
+pub struct MipLevelIterator<'a> {
+    inner: Iter<'a, MipLevel>,
+    data: &'a Vec<u8>,
+}
+
+impl<'a> Iterator for MipLevelIterator<'a> {
+    type Item = MipLevelView<'a>;
+
+    #[inline]
+    fn next(&mut self) -> Option<MipLevelView<'a>> {
+        self.inner.next().map(|level| MipLevelView {
+            data: &self.data[level.start..level.end],
+            size: level.size,
+            bytes_per_row: level.bytes_per_row,
+        })
     }
 }
 
@@ -185,15 +189,15 @@ impl BitmapReader {
             let block_size;
             match four_character_code {
                 "DXT1" => {
-                    bitmap.format = BitmapFormat::DXT1;
+                    bitmap.format = BitmapFormat::Dxt1;
                     block_size = 8;
                 }
                 "DXT3" => {
-                    bitmap.format = BitmapFormat::DXT3;
+                    bitmap.format = BitmapFormat::Dxt3;
                     block_size = 16;
                 }
                 "DXT5" => {
-                    bitmap.format = BitmapFormat::DXT5;
+                    bitmap.format = BitmapFormat::Dxt5;
                     block_size = 16;
                 }
                 _ => {
