@@ -78,12 +78,12 @@ impl PackedIntVec {
     ///
     /// Panics if 0 >= `int_size` > 64.
     pub fn with_capacity(int_size: u32, capacity: usize) -> PackedIntVec {
-        assert!(int_size <= 64 as u32);
+        assert!(int_size <= 64);
         assert_ne!(0, int_size);
-        let max_item = if int_size != 64 as u32 {
+        let max_item = if int_size != 64 {
             2u64.pow(int_size).next_power_of_two() - 1
         } else {
-            u64::max_value()
+            u64::MAX
         };
         let item_size = 64 - (max_item.count_zeros() as usize);
         let items_per_cell = 64 / item_size;

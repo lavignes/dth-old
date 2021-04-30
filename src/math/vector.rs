@@ -2,7 +2,6 @@ use crate::math::Quaternion;
 use std::{
     cmp::PartialEq,
     convert::From,
-    f32,
     ops::{Add, AddAssign, Div, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
@@ -165,10 +164,10 @@ impl From<(u32, u32)> for Vector2 {
     }
 }
 
-impl Into<(u32, u32)> for Vector2 {
+impl From<Vector2> for (u32, u32) {
     #[inline]
-    fn into(self: Vector2) -> (u32, u32) {
-        (self.0[0] as u32, self.0[1] as u32)
+    fn from(v: Vector2) -> (u32, u32) {
+        (v.0[0] as u32, v.0[1] as u32)
     }
 }
 

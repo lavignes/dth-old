@@ -17,16 +17,16 @@ pub struct PerspectiveProjection {
     pub far: f32,
 }
 
-impl Into<Matrix4> for &PerspectiveProjection {
+impl From<&PerspectiveProjection> for Matrix4 {
     #[inline]
-    fn into(self) -> Matrix4 {
-        let depth = self.near - self.far;
-        let tan_fov = (self.fov / 2.0).tan();
+    fn from(p: &PerspectiveProjection) -> Matrix4 {
+        let depth = p.near - p.far;
+        let tan_fov = (p.fov / 2.0).tan();
         Matrix4([
-            Vector4([1.0 / (tan_fov * self.aspect_ratio), 0.0, 0.0, 0.0]),
+            Vector4([1.0 / (tan_fov * p.aspect_ratio), 0.0, 0.0, 0.0]),
             Vector4([0.0, 1.0 / tan_fov, 0.0, 0.0]),
-            Vector4([0.0, 0.0, (self.near + self.far) / depth, -1.0]),
-            Vector4([0.0, 0.0, (2.0 * self.far * self.near) / depth, 0.0]),
+            Vector4([0.0, 0.0, (p.near + p.far) / depth, -1.0]),
+            Vector4([0.0, 0.0, (2.0 * p.far * p.near) / depth, 0.0]),
         ])
     }
 }
@@ -60,10 +60,10 @@ impl Default for Transform {
     }
 }
 
-impl Into<Matrix4> for &Transform {
+impl From<&Transform> for Matrix4 {
     #[inline]
-    fn into(self) -> Matrix4 {
-        &(&Matrix4::scale(self.scale) * &self.rotation.normalized().into())
-            * &Matrix4::translate(self.position)
+    fn from(t: &Transform) -> Matrix4 {
+        &(&Matrix4::scale(t.scale) * &t.rotation.normalized().into())
+            * &Matrix4::translate(t.position)
     }
 }

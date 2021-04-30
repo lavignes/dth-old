@@ -56,10 +56,9 @@ impl From<f32> for Float16 {
     }
 }
 
-impl Into<f32> for Float16 {
-    #[inline]
-    fn into(self) -> f32 {
-        let x = self.0 as u32;
+impl From<Float16> for f32 {
+    fn from(f: Float16) -> Self {
+        let x = f.0 as u32;
         bytemuck::cast((x & 0x8000) << 16 | (((x & 0x7c00) + 0x1C000) << 13) | ((x & 0x03FF) << 13))
     }
 }
