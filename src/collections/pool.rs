@@ -1,5 +1,6 @@
 use std::{
     marker::PhantomData,
+    mem::{self, MaybeUninit},
     slice::{Iter, IterMut},
 };
 
@@ -127,58 +128,29 @@ impl<T> Pool<T> {
     }
 
     #[inline]
-    pub fn get_mut_2(&mut self, handles: (Handle<T>, Handle<T>)) -> (&mut T, &mut T) {
-        assert_ne!(handles.0.index, handles.1.index);
-        // Safety: The lifetime of all output T are the same as self.
-        unsafe {
-            let s = self as *mut Self;
-            (
-                (*s).try_get_mut(handles.0).unwrap(),
-                (*s).try_get_mut(handles.1).unwrap(),
-            )
-        }
-    }
-
-    #[inline]
-    pub fn get_mut_3(
+    pub fn try_get_mut_arr<const N: usize>(
         &mut self,
-        handles: (Handle<T>, Handle<T>, Handle<T>),
-    ) -> (&mut T, &mut T, &mut T) {
-        assert_ne!(handles.0.index, handles.1.index);
-        assert_ne!(handles.0.index, handles.2.index);
-        assert_ne!(handles.1.index, handles.2.index);
-        // Safety: The lifetime of all output T are the same as self.
-        unsafe {
-            let s = self as *mut Self;
-            (
-                (*s).try_get_mut(handles.0).unwrap(),
-                (*s).try_get_mut(handles.1).unwrap(),
-                (*s).try_get_mut(handles.2).unwrap(),
-            )
+        handles: [Handle<T>; N],
+    ) -> [Option<&mut T>; N] {
+        // Ensure no 2 handles have the same index
+        // This function is only safe when all handles are unique
+        for (i, needle) in handles.iter().enumerate() {
+            for haystack in handles.iter().skip(i + 1) {
+                assert_ne!(needle.index, haystack.index);
+            }
         }
-    }
+        // Safety: This is ok as long as we make sure to initialize every object below.
+        // TODO: `MaybeUninit::uninit_array` is in nightly
+        let mut result: [MaybeUninit<Option<&mut T>>; N] =
+            unsafe { MaybeUninit::uninit().assume_init() };
 
-    #[inline]
-    pub fn get_mut_4(
-        &mut self,
-        handles: (Handle<T>, Handle<T>, Handle<T>, Handle<T>),
-    ) -> (&mut T, &mut T, &mut T, &mut T) {
-        assert_ne!(handles.0.index, handles.1.index);
-        assert_ne!(handles.0.index, handles.2.index);
-        assert_ne!(handles.0.index, handles.3.index);
-        assert_ne!(handles.1.index, handles.2.index);
-        assert_ne!(handles.1.index, handles.3.index);
-        assert_ne!(handles.2.index, handles.3.index);
-        // Safety: The lifetime of all output T are the same as self.
-        unsafe {
-            let s = self as *mut Self;
-            (
-                (*s).try_get_mut(handles.0).unwrap(),
-                (*s).try_get_mut(handles.1).unwrap(),
-                (*s).try_get_mut(handles.2).unwrap(),
-                (*s).try_get_mut(handles.3).unwrap(),
-            )
+        for (i, handle) in handles.iter().enumerate() {
+            // Safety: The lifetime of all output T are the same as self.
+            result[i] = MaybeUninit::new(unsafe { (*(self as *mut Self)).try_get_mut(*handle) });
         }
+        // FIXME: Would rather transmute https://github.com/rust-lang/rust/issues/47966
+        // Safety: Source and target arrays are the same size.
+        unsafe { mem::transmute_copy(&result) }
     }
 
     #[inline]

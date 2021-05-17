@@ -1,1 +1,3 @@
-* Get rid of the scene graph. Create an open world made up of cells with dynamic LOD
+think gme:
+* game, controllers, scenes, entities, scripts
+* render pipeline, queues, surfaces, draw commands

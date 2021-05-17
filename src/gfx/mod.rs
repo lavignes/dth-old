@@ -31,6 +31,31 @@ impl From<&PerspectiveProjection> for Matrix4 {
     }
 }
 
+#[derive(Default, Debug)]
+pub struct OrthographicProjection {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+    pub near: f32,
+    pub far: f32,
+}
+
+impl From<&OrthographicProjection> for Matrix4 {
+    #[inline]
+    fn from(p: &OrthographicProjection) -> Matrix4 {
+        let height = p.top - p.bottom;
+        let width = p.right - p.left;
+        let depth = p.far - p.near;
+        Matrix4([
+            Vector4([2.0 / width, 0.0, 0.0, -((p.right + p.left) / width)]),
+            Vector4([0.0, 2.0 / height, 0.0, -((p.top + p.bottom) / height)]),
+            Vector4([0.0, 0.0, -2.0 / depth, -((p.far + p.near) / depth)]),
+            Vector4([0.0, 0.0, 0.0, 1.0]),
+        ])
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Transform {
     pub position: Vector3,

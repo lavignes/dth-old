@@ -25,7 +25,7 @@ impl Default for BitmapFormat {
 }
 
 #[derive(Debug, Default)]
-struct MipLevel {
+struct RawMipLevel {
     start: usize,
     end: usize,
     size: Vector2,
@@ -33,13 +33,13 @@ struct MipLevel {
 }
 
 #[derive(Debug, Default)]
-pub struct MipLevelView<'a> {
+pub struct MipLevel<'a> {
     data: &'a [u8],
     size: Vector2,
     bytes_per_row: usize,
 }
 
-impl<'a> MipLevelView<'a> {
+impl<'a> MipLevel<'a> {
     #[inline]
     pub fn data(&self) -> &[u8] {
         self.data
@@ -60,7 +60,7 @@ impl<'a> MipLevelView<'a> {
 pub struct Bitmap {
     format: BitmapFormat,
     data: Vec<u8>,
-    mip_levels: Vec<MipLevel>,
+    mip_levels: Vec<RawMipLevel>,
 }
 
 impl Bitmap {
@@ -85,16 +85,16 @@ impl Bitmap {
 }
 
 pub struct MipLevelIterator<'a> {
-    inner: Iter<'a, MipLevel>,
+    inner: Iter<'a, RawMipLevel>,
     data: &'a Vec<u8>,
 }
 
 impl<'a> Iterator for MipLevelIterator<'a> {
-    type Item = MipLevelView<'a>;
+    type Item = MipLevel<'a>;
 
     #[inline]
-    fn next(&mut self) -> Option<MipLevelView<'a>> {
-        self.inner.next().map(|level| MipLevelView {
+    fn next(&mut self) -> Option<MipLevel<'a>> {
+        self.inner.next().map(|level| MipLevel {
             data: &self.data[level.start..level.end],
             size: level.size,
             bytes_per_row: level.bytes_per_row,
@@ -166,6 +166,8 @@ impl BitmapReader {
             str::from_utf8(&four_character_code_bytes),
             ErrorKind::InvalidData,
         )?;
+        // TODO: Don't I want to use these bitmasks for something?
+        //   It looks like I could support non 32-bit RGB formats
         let rgb_bit_counts = util::read_u32(reader)?;
         let _r_bit_mask = util::read_u32(reader)?.to_le_bytes();
         let _g_bit_mask = util::read_u32(reader)?.to_le_bytes();
@@ -218,7 +220,7 @@ impl BitmapReader {
                 for _ in 0..linear_size {
                     bitmap.data.push(util::read_u8(reader)?);
                 }
-                bitmap.mip_levels.push(MipLevel {
+                bitmap.mip_levels.push(RawMipLevel {
                     start: offset,
                     end: offset + linear_size,
                     size: (mip_width as f32, mip_height as f32).into(),
@@ -247,7 +249,7 @@ impl BitmapReader {
                 for _ in 0..linear_size {
                     bitmap.data.push(util::read_u8(reader)?);
                 }
-                bitmap.mip_levels.push(MipLevel {
+                bitmap.mip_levels.push(RawMipLevel {
                     start: offset,
                     end: offset + linear_size,
                     size: (mip_width as f32, mip_height as f32).into(),
@@ -271,7 +273,7 @@ impl BitmapReader {
             for _ in 0..(width * height) {
                 bitmap.data.extend(&util::read_u32(reader)?.to_le_bytes());
             }
-            bitmap.mip_levels.push(MipLevel {
+            bitmap.mip_levels.push(RawMipLevel {
                 start: 0,
                 end: linear_size as usize,
                 size: (width as f32, height as f32).into(),

@@ -497,6 +497,7 @@ impl ColladaReader {
         self.latest_id.push_str(value);
     }
 
+    /// Helper to remove the hashtag on reftag strings "#example" -> "example"
     #[inline]
     fn trim_ref(value: &str) -> String {
         value[1..].to_owned()
